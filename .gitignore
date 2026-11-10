@@ -4,3 +4,4 @@ public/mediapipe/
 public/models/
 *.log
 recordings/
+snaps/

@@ -50,6 +50,27 @@ npm install
 
 영상 조건: 측면에서 찍고 전신(손목·엉덩이·무릎·발목)이 다 보여야 한다. 동영상으로 잰 fps는 그 PC의 속도이므로 노트북 성능은 노트북에서 따로 확인한다.
 
+## 화면/창 캡처로 시뮬레이션
+
+유튜브처럼 내려받을 수 없는 영상은 다른 창에서 재생해 두고, "입력"에서 **🖥 화면/창 캡처…** 를 골라 그 창을 선택하면 된다. 화면은 저장하지 않고 메모리에서만 처리한다.
+
+### 자동 테스트 실행 옵션 (개발용)
+
+```bash
+npm run build
+```
+
+```bash
+npx electron . --open-url=https://www.youtube.com/shorts/s5yua33t08I --test-capture="Wakeline Test Source" --log-metrics --snapshot-dir=./snaps
+```
+
+| 옵션 | 동작 |
+| --- | --- |
+| `--open-url=<주소>` | 테스트 영상 페이지를 보조 창(제목 `Wakeline Test Source`)으로 연다 |
+| `--test-capture=<제목 일부>` | 제목이 맞는 창을 자동으로 캡처 입력으로 고른다 |
+| `--log-metrics` | 1초마다 인식 상태·fps·지표 범위를 터미널에 찍는다 |
+| `--snapshot-dir=<폴더>` | 5초마다 앱 화면을 PNG로 저장한다 |
+
 ## 폴더 구조
 
 ```

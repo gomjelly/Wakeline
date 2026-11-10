@@ -12,7 +12,23 @@ export interface WindowState {
   displayId: number;
 }
 
+export interface CaptureSource {
+  id: string;
+  name: string;
+  kind: 'screen' | 'window';
+  thumbnail: string; // data URL
+}
+
+export interface TestConfig {
+  captureTitle: string | null;
+  logMetrics: boolean;
+}
+
 export interface WakelineBridge {
+  listCaptureSources(): Promise<CaptureSource[]>;
+  selectCaptureSource(id: string): Promise<boolean>;
+  getTestConfig(): Promise<TestConfig>;
+  sendMetrics(line: string): void;
   listDisplays(): Promise<DisplayInfo[]>;
   getWindowState(): Promise<WindowState | null>;
   moveToDisplay(displayId: number, fullscreen: boolean): Promise<boolean>;

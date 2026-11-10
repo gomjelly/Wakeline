@@ -15,7 +15,7 @@ export interface SourceInfo {
   label: string;
 }
 
-export type SourceKind = 'camera' | 'file' | 'none';
+export type SourceKind = 'camera' | 'file' | 'capture' | 'none';
 
 export function savedCameraId(): string | null {
   try {
@@ -106,6 +106,30 @@ export class Camera {
     await v.play();
     this.kind = 'file';
     return { width: v.videoWidth, height: v.videoHeight, frameRate: 0, label: file.name };
+  }
+
+  /**
+   * 화면/창 캡처. Electron에서는 미리 고른 창이, 브라우저에서는 브라우저의 선택 창이 쓰인다.
+   * 캡처한 화면은 메모리에서만 처리하고 저장하지 않는다.
+   */
+  async startDisplay(onEnded: () => void): Promise<SourceInfo> {
+    this.stop();
+    this.stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30 } }, audio: false });
+    const track = this.stream.getVideoTracks()[0];
+    track.addEventListener('ended', onEnded);
+    this.video.loop = false;
+    this.video.srcObject = this.stream;
+    this.video.muted = true;
+    this.video.playsInline = true;
+    await this.video.play();
+    this.kind = 'capture';
+    const s = track.getSettings();
+    return {
+      width: this.video.videoWidth || s.width || 0,
+      height: this.video.videoHeight || s.height || 0,
+      frameRate: s.frameRate ?? 0,
+      label: track.label,
+    };
   }
 
   stop(): void {

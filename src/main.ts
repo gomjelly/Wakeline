@@ -12,7 +12,7 @@ import { StressScene } from './bench/stressScene';
 import { IndexGraph } from './ui/graph';
 import { SkeletonOverlay, STATUS_COLOR } from './ui/overlay';
 import { DurationStats, RateCounter, gradeFps } from './ui/stats';
-import type { DisplayInfo } from './types/wakeline';
+import type { CaptureSource, DisplayInfo } from './types/wakeline';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -102,11 +102,13 @@ async function main() {
   modelSelect.addEventListener('change', initModel);
   delegateSelect.addEventListener('change', initModel);
 
-  // ---------- 영상 입력 (카메라 / 동영상 파일) ----------
+  // ---------- 영상 입력 (카메라 / 동영상 파일 / 화면 캡처) ----------
   resSelect.value = pref.get('res', '1280x720');
 
   const FILE_PICK = '__file_pick__';
   const FILE_LOADED = '__file_loaded__';
+  const CAPTURE_PICK = '__capture_pick__';
+  const CAPTURE_ACTIVE = '__capture_active__';
   const fileInput = $<HTMLInputElement>('fileInput');
   const fileControls = $<HTMLDivElement>('fileControls');
   const playBtn = $<HTMLButtonElement>('playBtn');
@@ -115,8 +117,11 @@ async function main() {
   const speedSelect = $<HTMLSelectElement>('speedSelect');
   const camToggle = $<HTMLButtonElement>('camToggle');
 
-  let mode: 'camera' | 'file' = 'camera';
+  let mode: 'camera' | 'file' | 'capture' = 'camera';
   let currentFile: File | null = null;
+  let captureSourceId: string | null = null;
+  let captureName: string | null = null;
+  const SOURCE_WORD = { camera: '카메라', file: '영상', capture: '캡처' } as const;
   let cameraId: string | null = savedCameraId();
   let cameraList: { deviceId: string; label: string }[] = [];
 
@@ -132,7 +137,7 @@ async function main() {
   function showSourceError(err: unknown) {
     console.error(err);
     badge.className = 'badge none';
-    badge.textContent = `${mode === 'file' ? '영상' : '카메라'} 오류: ${(err as Error).message}`;
+    badge.textContent = `${SOURCE_WORD[mode]} 오류: ${(err as Error).message}`;
   }
 
   async function startCamera(deviceId: string | null) {
@@ -168,9 +173,48 @@ async function main() {
     syncSourceUi();
   }
 
+  async function startCapture() {
+    mode = 'capture';
+    fillSourceSelect();
+    badge.className = 'badge none';
+    badge.textContent = '캡처 연결 중';
+    try {
+      if (window.wakeline && captureSourceId) await window.wakeline.selectCaptureSource(captureSourceId);
+      const info = await camera.startDisplay(() => {
+        if (mode !== 'capture') return;
+        latestLms = null;
+        latestMetrics = null;
+        badge.className = 'badge off';
+        badge.textContent = '캡처가 끝났습니다';
+      });
+      applySourceInfo(info);
+    } catch (err) {
+      showSourceError(err);
+    }
+    syncSourceUi();
+  }
+
+  /** 캡처할 화면/창을 고른다. Electron은 자체 선택 창, 브라우저는 브라우저 기본 선택 창을 쓴다. */
+  async function pickCapture() {
+    const api = window.wakeline;
+    if (api) {
+      const chosen = await showCapturePicker(await api.listCaptureSources());
+      if (!chosen) return;
+      captureSourceId = chosen.id;
+      captureName = chosen.name;
+    } else {
+      captureName = '화면 캡처';
+    }
+    mode = 'capture';
+    if (cameraOn) await startCapture();
+    else await setCameraOn(true);
+  }
+
   /** 현재 모드의 입력을 (다시) 시작한다. */
   function startSource() {
-    return mode === 'file' && currentFile ? startVideoFile(currentFile) : startCamera(cameraId);
+    if (mode === 'file' && currentFile) return startVideoFile(currentFile);
+    if (mode === 'capture' && captureName) return startCapture();
+    return startCamera(cameraId);
   }
 
   function openFile(file: File) {
@@ -198,17 +242,20 @@ async function main() {
     if (!cameraList.length) add('', '카메라 없음', true);
     if (currentFile) add(FILE_LOADED, `🎞 ${currentFile.name}`);
     add(FILE_PICK, '📁 동영상 파일 열기…');
+    if (captureName) add(CAPTURE_ACTIVE, `🖥 ${captureName}`);
+    add(CAPTURE_PICK, '🖥 화면/창 캡처…');
     syncSourceUi();
   }
 
   function syncSourceUi() {
     const isFile = mode === 'file';
-    if (isFile && currentFile) camSelect.value = FILE_LOADED;
+    if (mode === 'capture' && captureName) camSelect.value = CAPTURE_ACTIVE;
+    else if (isFile && currentFile) camSelect.value = FILE_LOADED;
     else if (cameraId && cameraList.some((c) => c.deviceId === cameraId)) camSelect.value = cameraId;
     else if (!cameraList.length) camSelect.value = '';
     fileControls.hidden = !isFile;
-    resSelect.disabled = isFile;
-    const what = isFile ? '영상' : '카메라';
+    resSelect.disabled = mode !== 'camera';
+    const what = SOURCE_WORD[mode];
     camToggle.textContent = cameraOn ? `${what} 끄기` : `${what} 켜기`;
     playBtn.textContent = video.paused ? '▶ 재생' : '⏸ 일시정지';
   }
@@ -230,7 +277,13 @@ async function main() {
       fileInput.click();
       return;
     }
+    if (v === CAPTURE_PICK) {
+      syncSourceUi();
+      pickCapture();
+      return;
+    }
     if (v === FILE_LOADED) mode = 'file';
+    else if (v === CAPTURE_ACTIVE) mode = 'capture';
     else {
       mode = 'camera';
       cameraId = v;
@@ -312,7 +365,7 @@ async function main() {
         latestMetrics = null;
         handle.reset();
         badge.className = 'badge off';
-        badge.textContent = mode === 'file' ? '영상 꺼짐' : '카메라 꺼짐';
+        badge.textContent = `${SOURCE_WORD[mode]} 꺼짐`;
         $('sRes').textContent = '-';
       }
     } finally {
@@ -338,6 +391,7 @@ async function main() {
   // ---------- 지표용 시계 ----------
   // 동영상은 재생 속도·반복과 상관없이 영상 속 시간으로 스트로크 시간을 재야 한다.
   // 반복이나 탐색으로 영상 시간이 되돌아가도 단조 증가하도록 이어 붙인다.
+  const metricSamples: PoseMetrics[] = [];
   let mediaClock = 0;
   let lastMediaTime = -1;
   function resetMediaClock() {
@@ -364,6 +418,7 @@ async function main() {
       latestLms = landmarks;
       latestMetrics = handle.update(landmarks, camSize.width / camSize.height, t);
       graph.push({ t: performance.now(), index: latestMetrics.index, knee: latestMetrics.kneeAngleDeg });
+      metricSamples.push(latestMetrics);
       recorder.push(t, landmarks);
     }
     vfcHandle = video.requestVideoFrameCallback(onVideoFrame);
@@ -473,6 +528,88 @@ async function main() {
   renderLoop();
   await Promise.all([initModel(), startCamera(cameraId)]);
   await refreshCameraList();
+  await setupTestHooks();
+
+  // ---------- 테스트 지원 (Electron 실행 옵션으로만 켜짐) ----------
+  async function setupTestHooks() {
+    const api = window.wakeline;
+    if (!api) return;
+    const cfg = await api.getTestConfig();
+
+    if (cfg.logMetrics) {
+      setInterval(() => {
+        const ss = metricSamples.splice(0);
+        const idx = ss.map((m) => m.index).filter((v): v is number => v !== null);
+        const raw = ss.map((m) => m.raw).filter((v): v is number => v !== null);
+        const knee = ss.map((m) => m.kneeAngleDeg).filter((v): v is number => v !== null);
+        const count = (st: string) => ss.filter((m) => m.status === st).length;
+        const range = (a: number[], d = 2) => (a.length ? `${Math.min(...a).toFixed(d)}..${Math.max(...a).toFixed(d)}` : '-');
+        const now = performance.now();
+        api.sendMetrics(
+          [
+            `src=${mode}`,
+            `frames=${ss.length}`,
+            `ok/partial/none=${count('ok')}/${count('partial')}/${count('none')}`,
+            `side=${ss.at(-1)?.side ?? '-'}`,
+            `cam=${camRate.rate(now).toFixed(0)}fps`,
+            `pose=${poseRate.rate(now).toFixed(0)}fps`,
+            `infer=${infer.mean.toFixed(1)}ms`,
+            `res=${camSize.width}x${camSize.height}`,
+            `index=${range(idx)}`,
+            `raw=${range(raw)}`,
+            `knee=${range(knee, 0)}`,
+          ].join(' '),
+        );
+      }, 1000);
+    }
+
+    if (cfg.captureTitle) {
+      const wanted = cfg.captureTitle.toLowerCase();
+      for (let i = 0; i < 30; i++) {
+        const src = (await api.listCaptureSources()).find((x) => x.name.toLowerCase().includes(wanted));
+        if (src) {
+          captureSourceId = src.id;
+          captureName = src.name;
+          api.sendMetrics(`capture source selected: ${src.name}`);
+          if (cameraOn) await startCapture();
+          else await setCameraOn(true);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      api.sendMetrics(`capture source not found: ${cfg.captureTitle}`);
+    }
+  }
+}
+
+/** 캡처할 화면/창 선택 창. 고르면 그 소스를, 취소하면 null을 돌려준다. */
+function showCapturePicker(sources: CaptureSource[]): Promise<CaptureSource | null> {
+  const modal = $<HTMLDivElement>('capturePicker');
+  const list = $<HTMLDivElement>('captureList');
+  const cancel = $<HTMLButtonElement>('captureCancel');
+  list.innerHTML = '';
+  return new Promise((resolve) => {
+    const done = (v: CaptureSource | null) => {
+      modal.hidden = true;
+      cancel.onclick = null;
+      resolve(v);
+    };
+    if (!sources.length) list.textContent = '캡처할 수 있는 화면이나 창이 없습니다.';
+    for (const src of sources) {
+      const b = document.createElement('button');
+      b.className = 'capture-item';
+      const img = document.createElement('img');
+      img.src = src.thumbnail;
+      img.alt = '';
+      const label = document.createElement('span');
+      label.textContent = `${src.kind === 'screen' ? '🖥' : '🗔'} ${src.name}`;
+      b.append(img, label);
+      b.onclick = () => done(src);
+      list.appendChild(b);
+    }
+    cancel.onclick = () => done(null);
+    modal.hidden = false;
+  });
 }
 
 function setupDisplayControls() {

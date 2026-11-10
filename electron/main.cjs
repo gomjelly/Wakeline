@@ -1,10 +1,25 @@
 // Electron 메인 프로세스: 창 생성, 출력 디스플레이 선택, 전체화면, 카메라 권한, app:// 프로토콜.
-const { app, BrowserWindow, ipcMain, screen, session, protocol, net, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, session, protocol, net, Menu, desktopCapturer } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 
 const isDev = process.argv.includes('--dev');
+
+// ---------- 테스트용 실행 옵션 (개발용) ----------
+//   --open-url=<주소>         테스트 영상 페이지를 보조 창으로 연다
+//   --test-capture=<제목 일부> 제목에 이 글자가 들어간 창을 자동으로 캡처 입력으로 고른다
+//   --log-metrics            1초마다 인식 상태 요약을 터미널에 찍는다
+//   --snapshot-dir=<폴더>     5초마다 앱 화면을 PNG로 저장한다
+function argValue(name) {
+  const prefix = `--${name}=`;
+  const a = process.argv.find((x) => x.startsWith(prefix));
+  return a ? a.slice(prefix.length) : null;
+}
+const testOpenUrl = argValue('open-url');
+const testCaptureTitle = argValue('test-capture');
+const logMetrics = process.argv.includes('--log-metrics');
+const snapshotDir = argValue('snapshot-dir');
 const DEV_URL = 'http://127.0.0.1:5173';
 const DIST_DIR = path.join(__dirname, '..', 'dist');
 
@@ -154,6 +169,69 @@ function notifyDisplays() {
   mainWindow.webContents.send('displays:changed', describeDisplays(mainWindow));
 }
 
+// ---------- 화면/창 캡처 ----------
+// 렌더러가 고른 소스를 기억해 두었다가 getDisplayMedia 요청이 오면 그 소스로 응답한다.
+let selectedCaptureId = null;
+
+async function captureSources(withThumbs) {
+  const sources = await desktopCapturer.getSources({
+    types: ['window', 'screen'],
+    thumbnailSize: withThumbs ? { width: 320, height: 200 } : { width: 0, height: 0 },
+  });
+  const selfId = mainWindow && !mainWindow.isDestroyed() ? mainWindow.getMediaSourceId() : null;
+  return sources.filter((s) => s.id !== selfId);
+}
+
+ipcMain.handle('capture:listSources', async () =>
+  (await captureSources(true)).map((s) => ({
+    id: s.id,
+    name: s.name,
+    kind: s.id.startsWith('screen') ? 'screen' : 'window',
+    thumbnail: s.thumbnail.toDataURL(),
+  })),
+);
+ipcMain.handle('capture:select', (_e, id) => {
+  selectedCaptureId = id;
+  return true;
+});
+
+// ---------- 테스트 지원 ----------
+ipcMain.handle('test:config', () => ({ captureTitle: testCaptureTitle, logMetrics }));
+ipcMain.on('test:metrics', (_e, line) => {
+  if (logMetrics) console.log(`[metrics] ${line}`);
+});
+
+function openTestSourceWindow() {
+  if (!testOpenUrl) return;
+  const wa = screen.getPrimaryDisplay().workArea;
+  const win = new BrowserWindow({
+    x: wa.x + 20,
+    y: wa.y + 20,
+    width: 520,
+    height: 940,
+    title: 'Wakeline Test Source',
+    autoHideMenuBar: true,
+    webPreferences: { autoplayPolicy: 'no-user-gesture-required', backgroundThrottling: false },
+  });
+  // 페이지 제목이 바뀌지 않게 해서 --test-capture="Wakeline Test Source" 로 찾을 수 있게 한다.
+  win.on('page-title-updated', (e) => e.preventDefault());
+  win.webContents.setAudioMuted(true);
+  win.loadURL(testOpenUrl);
+}
+
+function startSnapshots() {
+  if (!snapshotDir) return;
+  fs.mkdirSync(snapshotDir, { recursive: true });
+  let n = 0;
+  setInterval(async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const img = await mainWindow.webContents.capturePage();
+    const file = path.join(snapshotDir, `snap-${String(++n).padStart(3, '0')}.png`);
+    fs.writeFileSync(file, img.toPNG());
+    console.log(`[snapshot] ${file}`);
+  }, 5000);
+}
+
 // ---------- IPC ----------
 ipcMain.handle('displays:list', () => describeDisplays(mainWindow));
 ipcMain.handle('window:state', () => windowState());
@@ -192,16 +270,26 @@ if (!app.requestSingleInstanceLock()) {
     });
 
     // 카메라 권한 자동 허용 (영상은 저장/전송하지 않음)
+    // 카메라(media)와 화면 캡처(display-capture)만 허용한다.
+    const allowed = new Set(['media', 'display-capture']);
     session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-      callback(permission === 'media');
+      callback(allowed.has(permission));
     });
-    session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'media');
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowed.has(permission));
+
+    session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+      const src = (await captureSources(false)).find((s) => s.id === selectedCaptureId);
+      if (src) callback({ video: src });
+      else callback({});
+    });
 
     screen.on('display-added', notifyDisplays);
     screen.on('display-removed', notifyDisplays);
     screen.on('display-metrics-changed', notifyDisplays);
 
     createWindow();
+    openTestSourceWindow();
+    startSnapshots();
   });
 
   app.on('window-all-closed', () => app.quit());
