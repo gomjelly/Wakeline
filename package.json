@@ -14,6 +14,7 @@
     "build": "tsc --noEmit && vite build",
     "start": "npm run build && electron .",
     "typecheck": "tsc --noEmit",
+    "make:video": "npm run build && electron scripts/make-rower-video.cjs",
     "setup:assets": "node scripts/setup-assets.mjs",
     "postinstall": "node scripts/setup-assets.mjs"
   },

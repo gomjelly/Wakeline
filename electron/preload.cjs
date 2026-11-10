@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('wakeline', {
   listCaptureSources: () => ipcRenderer.invoke('capture:listSources'),
   selectCaptureSource: (id) => ipcRenderer.invoke('capture:select', id),
   getTestConfig: () => ipcRenderer.invoke('test:config'),
+  getTestVideo: () => ipcRenderer.invoke('test:video'),
   sendMetrics: (line) => ipcRenderer.send('test:metrics', line),
   onDisplaysChanged: (cb) => {
     const handler = (_e, displays) => cb(displays);

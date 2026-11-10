@@ -11,5 +11,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     target: 'es2022',
+    rolldownOptions: {
+      input: {
+        main: 'index.html',
+        // 테스트 영상 생성기 (npm run make:video)
+        rowerVideo: 'tools/rower-video/index.html',
+      },
+    },
   },
 });

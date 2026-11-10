@@ -36,6 +36,8 @@ export interface WakelineBridge {
   listCaptureSources(): Promise<CaptureSource[]>;
   selectCaptureSource(id: string): Promise<boolean>;
   getTestConfig(): Promise<TestConfig>;
+  /** --test-video로 지정한 동영상(없으면 null) */
+  getTestVideo(): Promise<{ name: string; data: Uint8Array } | null>;
   sendMetrics(line: string): void;
   listDisplays(): Promise<DisplayInfo[]>;
   getWindowState(): Promise<WindowState | null>;

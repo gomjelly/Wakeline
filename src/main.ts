@@ -727,6 +727,12 @@ async function main() {
       }, 1000);
     }
 
+    const tv = await api.getTestVideo();
+    if (tv) {
+      api.sendMetrics(`test video: ${tv.name} (${(tv.data.byteLength / 1e6).toFixed(1)} MB)`);
+      openFile(new File([new Uint8Array(tv.data)], tv.name, { type: 'video/webm' }));
+    }
+
     if (cfg.startCheck) await setCheckMode(true);
 
     if (cfg.captureTitle) {

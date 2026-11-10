@@ -116,6 +116,18 @@ npm install
 
 영상 조건: 측면에서 찍고 전신(손목·엉덩이·무릎·발목)이 다 보여야 한다. 동영상으로 잰 fps는 그 PC의 속도이므로 노트북 성능은 노트북에서 따로 확인한다.
 
+## 3D 로잉 테스트 영상 만들기
+
+카메라나 실제 영상이 없을 때 쓰는 합성 영상이다. 헬스장 로잉머신에서 노를 젓는 3D 사람을 옆·약간 뒤쪽에서 전신이 보이게 찍는다. 영상 길이를 스트로크 주기의 정수배로 맞춰 반복 재생해도 끊기지 않는다.
+
+```bash
+npm run make:video
+```
+
+`test-videos/rower-side-rear-24spm.webm`(30초, 24SPM, 1280×720)이 만들어진다. 옵션: `npx electron scripts/make-rower-video.cjs --seconds=30 --spm=24 --cam=side-rear|side --out=<파일>`. 장면은 `src/tools/rowerVideo.ts`, 미리보기는 `npm run web` 후 `http://127.0.0.1:5173/tools/rower-video/`.
+
+앱에서 바로 열기: `npx electron . --test-video=test-videos/rower-side-rear-24spm.webm --start-check`
+
 ## 화면/창 캡처로 시뮬레이션
 
 유튜브처럼 내려받을 수 없는 영상은 다른 창에서 재생해 두고, "입력"에서 **🖥 화면/창 캡처…** 를 골라 그 창을 선택하면 된다. 화면은 저장하지 않고 메모리에서만 처리한다.

@@ -26,6 +26,7 @@ const autoSave = process.argv.includes('--auto-save'); // 결과가 나오면 �
 const autoGhosts = process.argv.includes('--ghosts'); // 같은 거리 최근 기록을 고스트로 자동 선택
 // --profile-dir=<폴더> : 기록·설정을 이 폴더에 따로 저장한다(테스트 기록이 실제 기록과 섞이지 않게)
 const profileDir = argValue('profile-dir');
+const testVideo = argValue('test-video'); // --test-video=<파일> : 시작하면 이 동영상을 입력으로 연다
 if (profileDir) app.setPath('userData', path.resolve(profileDir));
 const snapshotDir = argValue('snapshot-dir');
 const DEV_URL = 'http://127.0.0.1:5173';
@@ -215,6 +216,11 @@ ipcMain.handle('test:config', () => ({
   autoSave,
   ghosts: autoGhosts,
 }));
+ipcMain.handle('test:video', () => {
+  if (!testVideo) return null;
+  const file = path.resolve(testVideo);
+  return { name: path.basename(file), data: fs.readFileSync(file) };
+});
 ipcMain.on('test:metrics', (_e, line) => {
   if (logMetrics) console.log(`[metrics] ${line}`);
 });
