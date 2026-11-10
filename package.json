@@ -5,6 +5,9 @@
   "description": "웹캠 자세 인식 로잉 게임",
   "main": "electron/main.cjs",
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "concurrently -k -n vite,electron -c cyan,magenta \"vite\" \"wait-on tcp:127.0.0.1:5173 && electron . --dev\"",
     "web": "vite",

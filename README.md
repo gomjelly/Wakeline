@@ -7,7 +7,7 @@
 
 ## 처음 설치
 
-Node.js 20 이상이 필요하다.
+**Node.js 22.12 이상**이 필요하다(개발 PC는 24.11에서 확인). Vite 8, Electron 45, concurrently 10이 이 버전을 요구한다. Node 20.11처럼 낮은 버전이면 `npm install`이 버전 안내와 함께 멈춘다.
 
 ```bash
 npm install
