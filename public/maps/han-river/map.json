@@ -1,0 +1,13 @@
+{
+  "id": "han-river",
+  "name": "한강",
+  "description": "노을 지는 한강을 따라 다리 사이를 달린다",
+  "riverWidthM": 700,
+  "sunElevationDeg": 3.5,
+  "bridges": [
+    { "name": "한남대교", "distanceM": 350 },
+    { "name": "반포대교", "distanceM": 1600 },
+    { "name": "동작대교", "distanceM": 3200 },
+    { "name": "한강대교", "distanceM": 4800 }
+  ]
+}

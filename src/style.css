@@ -274,6 +274,134 @@ body.check-mode #metricBox { display: none; }
 }
 .check-actions { margin-top: auto; justify-content: flex-end; }
 
+/* ---------- 레이스 화면 ---------- */
+#raceView { position: fixed; inset: 0; z-index: 20; background: #000; }
+#raceCanvas { width: 100%; height: 100%; display: block; }
+body.race-mode #panel,
+body.race-mode #graphWrap,
+body.race-mode #metricBox,
+body.race-mode #scene { display: none !important; }
+/* 카메라 + 골격 작은 창 (FR-CAM-03) */
+body.race-mode #camWrap {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  /* 세로 영상도 HUD를 가리지 않게 높이를 제한하고 비율대로 너비를 맞춘다 */
+  height: min(36vh, 300px);
+  width: auto;
+  max-width: 34vw;
+  z-index: 30;
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+body.race-mode #camWrap.corner-bottom-left { right: auto; left: 20px; }
+body.race-mode #camWrap.corner-top-right { bottom: auto; top: 20px; }
+body.race-mode #camWrap.corner-top-left { bottom: auto; top: 20px; right: auto; left: 20px; }
+
+.hud {
+  position: absolute;
+  top: 20px;
+  background: rgba(8, 14, 26, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 14px 18px;
+  backdrop-filter: blur(6px);
+  font-variant-numeric: tabular-nums;
+}
+.hud-left { left: 20px; min-width: 300px; }
+.hud-right { right: 20px; min-width: 230px; }
+.hud-dist { font-size: 46px; font-weight: 800; line-height: 1; }
+.hud-dist small { font-size: 18px; color: var(--muted); font-weight: 600; }
+.hud-bar { height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.12); margin: 10px 0 12px; overflow: hidden; }
+#hudBar { height: 100%; width: 0; background: linear-gradient(90deg, #38e1ff, #3ddc84); }
+.hud-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px 16px; }
+.hud-grid div { display: grid; }
+.hud-grid .k { font-size: 12px; color: var(--muted); }
+.hud-grid .v { font-size: 22px; font-weight: 700; }
+.hud-rank { font-size: 46px; font-weight: 800; line-height: 1; color: #ffd23f; }
+.hud-rank small { font-size: 18px; color: var(--muted); font-weight: 600; }
+.hud-standings { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 4px; font-size: 15px; }
+.hud-standings li { display: flex; justify-content: space-between; gap: 12px; padding: 3px 6px; border-radius: 6px; }
+.hud-standings li.me { background: rgba(255, 77, 77, 0.25); font-weight: 700; }
+.hud-standings .gap { color: var(--muted); }
+.hud-standings .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 6px; }
+
+.hud-progress {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  width: min(52vw, 760px);
+  height: 10px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.15);
+}
+.hud-progress .pip {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+}
+.hud-progress .pip.me { width: 22px; height: 22px; margin: -11px 0 0 -11px; z-index: 2; }
+.hud-keys { position: absolute; left: 20px; bottom: 20px; font-size: 13px; color: rgba(255, 255, 255, 0.6); }
+
+.hud-countdown {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: min(30vh, 260px);
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+.hud-countdown.go { color: #3ddc84; }
+.hud-toast {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(8, 14, 26, 0.8);
+  border-radius: 999px;
+  padding: 10px 26px;
+  font-size: 24px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.race-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 40;
+}
+.race-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 26px 30px;
+  min-width: 360px;
+  text-align: center;
+}
+.race-card h2 { font-size: 30px; color: var(--text); text-transform: none; letter-spacing: 0; margin-bottom: 10px; }
+.race-card .row.center { justify-content: center; margin-top: 18px; }
+.race-card button { font-size: 16px; padding: 10px 18px; }
+button.danger { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 700; }
+.result { min-width: min(560px, 90vw); }
+.result-rank { font-size: 64px; font-weight: 900; color: #ffd23f; }
+.result-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0; }
+.result-stats div { background: var(--panel-2); border-radius: 10px; padding: 10px; display: grid; }
+.result-stats .k { font-size: 12px; color: var(--muted); }
+.result-stats .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.result-standings { text-align: left; margin: 8px auto 0; max-width: 360px; font-size: 15px; display: grid; gap: 4px; }
+.result-standings li.me { color: #ff8080; font-weight: 700; }
+
 /* 화면/창 캡처 선택 */
 .modal {
   position: fixed;

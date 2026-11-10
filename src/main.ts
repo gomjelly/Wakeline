@@ -2,7 +2,10 @@
 // 카메라 선택 → MediaPipe Pose → 골격 오버레이 → 핸들 위치 지표 그래프, 출력 모니터 선택.
 
 import './style.css';
-import { loadConfig } from './config';
+import { loadConfig, loadMap, type DifficultyId } from './config';
+import type { OpponentKind } from './game/race';
+import { formatTime } from './game/race';
+import { RaceScreen } from './ui/raceScreen';
 import { Camera, listCameras, savedCameraId } from './pose/camera';
 import { HandleIndexTracker, type PoseMetrics } from './pose/handleIndex';
 import type { Landmark } from './pose/landmarks';
@@ -38,6 +41,7 @@ const pref = {
 
 async function main() {
   const config = await loadConfig();
+  const hanRiver = await loadMap('han-river');
   const det = config.detection;
 
   const video = $<HTMLVideoElement>('video');
@@ -382,6 +386,7 @@ async function main() {
 
   camToggle.addEventListener('click', () => setCameraOn(!cameraOn));
   window.addEventListener('keydown', (e) => {
+    if (raceScreen.active) return; // 레이스 중에는 레이스 화면이 키를 처리한다
     if (e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     // 한글 입력 상태에서도 동작하도록 e.code로 판별
@@ -426,6 +431,7 @@ async function main() {
       graph.push({ t: performance.now(), index: latestMetrics.index, knee: latestMetrics.kneeAngleDeg });
       metricSamples.push(latestMetrics);
       if (checkMode) check.push({ t, landmarks, metrics: latestMetrics, aspect: camSize.width / camSize.height });
+      if (raceScreen.active) raceScreen.onPose(performance.now(), latestMetrics.index, latestMetrics.status !== 'none');
       recorder.push(t, landmarks);
     }
     vfcHandle = video.requestVideoFrameCallback(onVideoFrame);
@@ -444,7 +450,7 @@ async function main() {
   function renderLoop() {
     const now = performance.now();
     renderRate.tick(now);
-    if (!checkMode) stress?.render();
+    if (!checkMode && !raceScreen.active) stress?.render();
 
     const status = latestMetrics?.status ?? 'none';
     const side = latestMetrics?.side ?? 'left';
@@ -529,6 +535,7 @@ async function main() {
     brightness = null;
   });
   window.addEventListener('keydown', (e) => {
+    if (raceScreen.active) return;
     if (e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.code === 'KeyK') {
       e.preventDefault();
@@ -538,6 +545,45 @@ async function main() {
       setCheckMode(false);
     }
   });
+
+  // ---------- 레이스 ----------
+  const raceDifficulty = $<HTMLSelectElement>('raceDifficulty');
+  const raceDistance = $<HTMLSelectElement>('raceDistance');
+  const raceOpponent = $<HTMLSelectElement>('raceOpponent');
+  for (const d of config.race.distancesM) {
+    const opt = document.createElement('option');
+    opt.value = String(d);
+    opt.textContent = d >= 1000 ? `${d / 1000}km` : `${d}m`;
+    raceDistance.appendChild(opt);
+  }
+  raceDifficulty.value = pref.get('race.difficulty', 'normal');
+  raceDistance.value = pref.get('race.distance', String(config.race.defaultDistanceM));
+  if (!raceDistance.value) raceDistance.value = String(config.race.defaultDistanceM);
+  raceOpponent.value = pref.get('race.opponent', 'ai');
+
+  const raceScreen = new RaceScreen(config, hanRiver, {
+    onExit: () => {
+      if (stressToggle.checked) setStress(true);
+    },
+    onFinish: (s) => {
+      window.wakeline?.sendMetrics(
+        `race ${s.status} time=${formatTime(s.totalTimeMs, true)} dist=${s.distanceM.toFixed(0)} split=${formatTime(s.avgSplitSec * 1000, true)} spm=${s.avgSpm.toFixed(1)} strokes=${s.strokeCount} rank=${s.rank}/${s.boats}`,
+      );
+    },
+  });
+
+  async function startRace(distanceM: number, difficulty: DifficultyId, opponent: OpponentKind) {
+    if (checkMode) await setCheckMode(false);
+    if (!cameraOn) await setCameraOn(true);
+    setStress(false);
+    pref.set('race.difficulty', difficulty);
+    pref.set('race.distance', String(distanceM));
+    pref.set('race.opponent', opponent);
+    raceScreen.start({ mapId: hanRiver.id, distanceM, difficulty, opponent });
+  }
+  $('raceStartBtn').addEventListener('click', () =>
+    startRace(Number(raceDistance.value), raceDifficulty.value as DifficultyId, raceOpponent.value as OpponentKind),
+  );
 
   // ---------- 3D 부하 ----------
   function setStress(on: boolean) {
@@ -615,6 +661,16 @@ async function main() {
             `knee=${range(knee, 0)}`,
           ].join(' '),
         );
+        const race = raceScreen.race;
+        if (race) {
+          const st = race.standings();
+          api.sendMetrics(
+            `race phase=${race.phase} t=${formatTime(race.elapsedMs, true)} dist=${race.player.distance.toFixed(1)} ` +
+              `v=${race.player.speed.toFixed(2)} split=${race.splitSec ? formatTime(race.splitSec * 1000, true) : '-'} ` +
+              `spm=${race.spm.toFixed(1)} strokes=${race.strokes.length} rank=${st.findIndex((b) => b.id === 'player') + 1}/${st.length} ` +
+              `ai=[${race.ais.map((a) => a.distance.toFixed(0)).join(',')}]`,
+          );
+        }
         if (checkMode) {
           const r = check.evaluate(camRate.rate(now), brightness);
           api.sendMetrics(
@@ -638,11 +694,17 @@ async function main() {
           api.sendMetrics(`capture source selected: ${src.name}`);
           if (cameraOn) await startCapture();
           else await setCameraOn(true);
-          return;
+          break;
         }
         await new Promise((r) => setTimeout(r, 1000));
+        if (i === 29) api.sendMetrics(`capture source not found: ${cfg.captureTitle}`);
       }
-      api.sendMetrics(`capture source not found: ${cfg.captureTitle}`);
+    }
+
+    if (cfg.startRace) {
+      // 자세 인식이 자리 잡을 시간을 조금 준 뒤 출발한다.
+      await new Promise((r) => setTimeout(r, 3000));
+      await startRace(cfg.startRace, (cfg.raceDifficulty as DifficultyId) ?? 'normal', 'ai');
     }
   }
 }

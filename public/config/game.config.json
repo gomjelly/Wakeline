@@ -10,6 +10,10 @@
     "normal": { "splitSec": 140, "spm": [22, 26], "paceVariance": 0.04, "finalSprint": 0.03 },
     "hard":   { "splitSec": 120, "spm": [26, 30], "paceVariance": 0.03, "finalSprint": 0.06 }
   },
+  "ai": {
+    "count": 3,
+    "spreadSec": 6
+  },
   "physics": {
     "propulsionGain": 9.0,
     "dragCoefficient": 0.8,

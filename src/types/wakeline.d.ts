@@ -23,6 +23,9 @@ export interface TestConfig {
   captureTitle: string | null;
   logMetrics: boolean;
   startCheck: boolean;
+  /** 레이스 거리(m). 0/null이면 자동 시작하지 않음 */
+  startRace: number | null;
+  raceDifficulty: string | null;
 }
 
 export interface WakelineBridge {

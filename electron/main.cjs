@@ -20,6 +20,8 @@ const testOpenUrl = argValue('open-url');
 const testCaptureTitle = argValue('test-capture');
 const logMetrics = process.argv.includes('--log-metrics');
 const startCheck = process.argv.includes('--start-check'); // 시작하자마자 카메라 점검 모드로 들어간다
+const startRace = Number(argValue('start-race')) || null; // --start-race=500 : 그 거리로 레이스 자동 시작
+const raceDifficulty = argValue('difficulty'); // --difficulty=easy|normal|hard
 const snapshotDir = argValue('snapshot-dir');
 const DEV_URL = 'http://127.0.0.1:5173';
 const DIST_DIR = path.join(__dirname, '..', 'dist');
@@ -197,7 +199,7 @@ ipcMain.handle('capture:select', (_e, id) => {
 });
 
 // ---------- 테스트 지원 ----------
-ipcMain.handle('test:config', () => ({ captureTitle: testCaptureTitle, logMetrics, startCheck }));
+ipcMain.handle('test:config', () => ({ captureTitle: testCaptureTitle, logMetrics, startCheck, startRace, raceDifficulty }));
 ipcMain.on('test:metrics', (_e, line) => {
   if (logMetrics) console.log(`[metrics] ${line}`);
 });
