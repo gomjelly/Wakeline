@@ -460,6 +460,11 @@ export class RaceScene {
     this.scene.add(g);
   }
 
+  /** i번 배가 플레이어 배보다 옆으로 얼마나 떨어져 있는지(m, 오른쪽 +) — 소리 좌우 배치용 */
+  laneOffset(i: number): number {
+    return (this.laneX[i] ?? 0) - (this.laneX[0] ?? 0);
+  }
+
   resize(): void {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     const size = this.renderer.getSize(new THREE.Vector2());

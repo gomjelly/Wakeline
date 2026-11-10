@@ -134,6 +134,8 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: false,
+      // 효과음이 사용자 클릭 없이도(자동 시작 등) 나도록
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
 

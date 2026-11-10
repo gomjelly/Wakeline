@@ -4,6 +4,8 @@ import type { GameConfig, MapDefinition } from '../config';
 import { defaultRecordName, saveRace, shortName, type SessionRecord } from '../data/records';
 import { Race, formatTime, type RaceSettings, type RaceSummary } from '../game/race';
 import { RaceScene, type BoatSpec } from '../game/raceScene';
+import { RaceSound } from '../game/sound';
+import type { RacePhase } from '../game/race';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -17,6 +19,8 @@ export interface RaceScreenHooks {
   onFinish?(summary: RaceSummary, race: Race): void;
   /** 기록을 저장했을 때 */
   onSaved?(record: SessionRecord): void;
+  /** 레이스 중 M 키로 음소거를 바꿨을 때 */
+  onMuteChange?(muted: boolean): void;
 }
 
 interface BoatView {
@@ -44,6 +48,11 @@ export class RaceScreen {
   private resultShown = false;
   private saved: SessionRecord | null = null;
   private saving = false;
+  readonly sound = new RaceSound();
+  private prevPhase: RacePhase = 'countdown';
+  private lastBeepSec = 0;
+  private prevStrokePhase = 'recovery';
+  private prevRivalDriving: boolean[] = [];
 
   constructor(
     private cfg: GameConfig,
@@ -103,6 +112,11 @@ export class RaceScreen {
     this.passedBridges.clear();
     this.lastSeenPerson = performance.now();
     this.lastFrame = performance.now();
+    this.prevPhase = race.phase;
+    this.lastBeepSec = 0;
+    this.prevStrokePhase = 'recovery';
+    this.prevRivalDriving = [];
+    this.sound.ensure().then(() => this.sound.startFlow()).catch((err) => console.warn('소리를 켤 수 없습니다', err));
     this.loop();
   }
 
@@ -125,6 +139,7 @@ export class RaceScreen {
       this.pause('사람이 보이지 않아 일시정지했습니다. 카메라 앞으로 돌아온 뒤 스페이스를 누르세요.');
     }
     race.tick(dt, now);
+    this.updateSound();
 
     this.scene.render(
       [
@@ -145,6 +160,63 @@ export class RaceScreen {
     }
     this.raf = requestAnimationFrame(this.loop);
   };
+
+  /** 레이스 상태 변화에 맞춰 효과음을 낸다. */
+  private updateSound(): void {
+    const race = this.race!;
+    const snd = this.sound;
+    const phase = race.phase;
+
+    // 카운트다운: 숫자가 바뀔 때마다 삑
+    if (phase === 'countdown' || phase === 'resume') {
+      const sec = Math.ceil(race.countdownMs / 1000);
+      if (sec !== this.lastBeepSec && sec > 0) {
+        this.lastBeepSec = sec;
+        snd.beep();
+      }
+    } else this.lastBeepSec = 0;
+
+    // 출발: 처음에는 시작 휘슬, 일시정지 후 재개할 때는 높은 삑
+    if (phase === 'racing' && this.prevPhase !== 'racing') {
+      if (this.prevPhase === 'countdown') snd.startWhistle();
+      else if (this.prevPhase === 'resume') snd.beep(true);
+    }
+    // 결승: 종료 휘슬
+    if (phase === 'finished' && this.prevPhase !== 'finished') snd.finishWhistle();
+    this.prevPhase = phase;
+
+    // 물살: 배 속도에 따라
+    snd.setSpeed(phase === 'paused' ? 0 : race.player.speed);
+
+    if (phase !== 'racing') {
+      this.prevStrokePhase = race.detector.phase;
+      return;
+    }
+
+    // 내 노: 스트로크 감지기가 드라이브에 들어가는 순간(노가 물을 잡는 순간)
+    const sp = race.detector.phase;
+    if (sp === 'drive' && this.prevStrokePhase !== 'drive') {
+      const last = race.strokes[race.strokes.length - 1];
+      snd.stroke(last ? last.length : 0.8, 0, 1);
+    }
+    this.prevStrokePhase = sp;
+
+    // 다른 배들의 노: 가까울수록 크게, 레인 방향(좌우)에 맞춰
+    const rivals = [
+      ...race.ais.map((a) => ({ driving: a.driving, distance: a.distance })),
+      ...race.ghosts.map((g) => ({ driving: g.driving, distance: g.distance })),
+    ];
+    rivals.forEach((r, i) => {
+      const was = this.prevRivalDriving[i] ?? false;
+      if (r.driving && !was) {
+        const dz = r.distance - race.player.distance;
+        const dx = this.scene?.laneOffset(i + 1) ?? 0;
+        const level = 0.4 * Math.max(0, 1 - Math.hypot(dx, dz) / 45);
+        snd.stroke(0.6, dx / 30, level);
+      }
+      this.prevRivalDriving[i] = r.driving;
+    });
+  }
 
   private buildProgressPips(): void {
     const bar = $('hudProgress');
@@ -329,7 +401,11 @@ export class RaceScreen {
     }
     const phase = this.race.phase;
     const done = phase === 'finished' || phase === 'aborted';
-    if (this.quitOpen) {
+    if (e.code === 'KeyM') {
+      this.sound.setMuted(!this.sound.muted);
+      this.toast(this.sound.muted ? '🔇 소리 끔 (M)' : '🔊 소리 켬 (M)', performance.now());
+      this.hooks.onMuteChange?.(this.sound.muted);
+    } else if (this.quitOpen) {
       if (e.code === 'Enter') this.confirmQuit();
       else if (e.code === 'Escape') this.closeQuit();
       else return;
@@ -350,6 +426,7 @@ export class RaceScreen {
 
   private teardown(): void {
     cancelAnimationFrame(this.raf);
+    this.sound.stopFlow();
     this.scene?.dispose();
     this.scene = null;
     this.race = null;

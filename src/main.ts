@@ -581,6 +581,26 @@ async function main() {
         `race ${s.status} time=${formatTime(s.totalTimeMs, true)} dist=${s.distanceM.toFixed(0)} split=${formatTime(s.avgSplitSec * 1000, true)} spm=${s.avgSpm.toFixed(1)} strokes=${s.strokeCount} rank=${s.rank}/${s.boats}`,
       );
     },
+    onMuteChange: (muted) => {
+      soundOn.checked = !muted;
+    },
+  });
+
+  // ---------- 효과음 ----------
+  const soundOn = $<HTMLInputElement>('soundOn');
+  const soundVolume = $<HTMLInputElement>('soundVolume');
+  soundOn.checked = !raceScreen.sound.muted;
+  soundVolume.value = String(Math.round(raceScreen.sound.volume * 100));
+  soundOn.addEventListener('change', () => raceScreen.sound.setMuted(!soundOn.checked));
+  soundVolume.addEventListener('input', () => raceScreen.sound.setVolume(Number(soundVolume.value) / 100));
+  $('soundTest').addEventListener('click', async () => {
+    // 미리 듣기: 삑 → 휘슬 → 노 젓는 소리
+    const snd = raceScreen.sound;
+    await snd.ensure();
+    snd.beep();
+    setTimeout(() => snd.startWhistle(), 600);
+    setTimeout(() => snd.stroke(0.9), 1700);
+    setTimeout(() => snd.stroke(0.9), 3300);
   });
 
   async function startRace(distanceM: number, difficulty: DifficultyId, opponent: OpponentKind) {
@@ -650,6 +670,19 @@ async function main() {
     const cfg = await api.getTestConfig();
 
     if (cfg.logMetrics) {
+      // 효과음: 같은 1초 안의 소리를 모아서 한 줄로 찍는다
+      const soundEvents: string[] = [];
+      raceScreen.sound.onEvent = (name) => soundEvents.push(name);
+      setInterval(() => {
+        if (soundEvents.length || raceScreen.race) {
+          const counts = new Map<string, number>();
+          for (const n of soundEvents.splice(0)) counts.set(n, (counts.get(n) ?? 0) + 1);
+          api.sendMetrics(
+            `sound flow=${raceScreen.sound.flowLevel.toFixed(3)} ` +
+              [...counts].map(([k, v]) => `${k}x${v}`).join(' '),
+          );
+        }
+      }, 1000);
       setInterval(() => {
         const ss = metricSamples.splice(0);
         const idx = ss.map((m) => m.index).filter((v): v is number => v !== null);
