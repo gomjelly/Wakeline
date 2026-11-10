@@ -7,7 +7,7 @@ import type { OpponentKind } from './game/race';
 import { formatTime } from './game/race';
 import { RaceScreen } from './ui/raceScreen';
 import { RecordsPanel } from './ui/recordsPanel';
-import { FLOW_SOUNDS, STROKE_SOUNDS, type FlowSoundId, type StrokeSoundId } from './game/sound';
+import { FLOW_SOUNDS, STROKE_SOUNDS, type FlowSoundId, type PreviewKind, type StrokeSoundId } from './game/sound';
 import { Camera, listCameras, savedCameraId } from './pose/camera';
 import { HandleIndexTracker, type PoseMetrics } from './pose/handleIndex';
 import type { Landmark } from './pose/landmarks';
@@ -596,14 +596,6 @@ async function main() {
   soundVolume.value = String(Math.round(raceScreen.sound.volume * 100));
   soundOn.addEventListener('change', () => raceScreen.sound.setMuted(!soundOn.checked));
   soundVolume.addEventListener('input', () => raceScreen.sound.setVolume(Number(soundVolume.value) / 100));
-  $('soundTest').addEventListener('click', async () => {
-    // 미리 듣기: 삑 → 휘슬 → 물소리와 함께 노 젓기
-    const snd = raceScreen.sound;
-    await snd.ensure();
-    snd.beep();
-    setTimeout(() => snd.startWhistle(), 600);
-    setTimeout(() => snd.preview(), 1500);
-  });
 
   // ---------- 레이스 중 카메라 창 크기 ----------
   // 화면 해상도와 영상 비율(가로/세로 영상)에 맞춰 오른쪽 아래 카메라 창 크기를 정한다.
@@ -640,18 +632,46 @@ async function main() {
   for (const s of FLOW_SOUNDS) flowSound.add(new Option(s.label, s.id));
   strokeSound.value = raceScreen.sound.strokeSound;
   flowSound.value = raceScreen.sound.flowSound;
-  strokeSound.addEventListener('change', async () => {
+
+  // 미리듣기 버튼: 한 번에 하나만 재생. 재생 중인 버튼은 ⏹(멈춤), 끝나면 다시 ▶
+  const previewButtons: Record<PreviewKind, HTMLButtonElement> = {
+    all: $<HTMLButtonElement>('soundTest'),
+    stroke: $<HTMLButtonElement>('strokePreview'),
+    flow: $<HTMLButtonElement>('flowPreview'),
+  };
+  const previewTitles: Record<PreviewKind, string> = {
+    all: '휘슬 + 노 + 물소리 들어보기',
+    stroke: '이 노 소리 들어보기',
+    flow: '이 물소리 들어보기',
+  };
+  function syncPreviewButtons(playing: PreviewKind | null) {
+    for (const k of Object.keys(previewButtons) as PreviewKind[]) {
+      const b = previewButtons[k];
+      const on = playing === k;
+      b.textContent = on ? '⏹' : '▶';
+      b.title = on ? '멈춤' : previewTitles[k];
+      b.classList.toggle('playing', on);
+    }
+  }
+  raceScreen.sound.onPreviewChange = syncPreviewButtons;
+  syncPreviewButtons(null);
+  for (const k of Object.keys(previewButtons) as PreviewKind[]) {
+    previewButtons[k].addEventListener('click', () => {
+      const snd = raceScreen.sound;
+      if (snd.previewing === k) snd.stopPreview();
+      else snd.startPreview(k);
+    });
+  }
+  // 소리 종류를 바꾸면 그 소리를 처음부터 다시 들려준다(버튼은 ⏹)
+  strokeSound.addEventListener('change', () => {
     raceScreen.sound.setStrokeSound(strokeSound.value as StrokeSoundId);
-    await raceScreen.sound.ensure();
-    raceScreen.sound.stroke(0.9);
+    raceScreen.sound.startPreview('stroke');
   });
-  flowSound.addEventListener('change', () => raceScreen.sound.setFlowSound(flowSound.value as FlowSoundId));
-  $('strokePreview').addEventListener('click', async () => {
-    const snd = raceScreen.sound;
-    await snd.ensure();
-    [0, 1500, 3000].forEach((ms) => setTimeout(() => snd.stroke(0.9), ms));
+  flowSound.addEventListener('change', () => {
+    raceScreen.sound.setFlowSound(flowSound.value as FlowSoundId);
+    if (flowSound.value === 'off') raceScreen.sound.stopPreview();
+    else raceScreen.sound.startPreview('flow');
   });
-  $('flowPreview').addEventListener('click', () => raceScreen.sound.preview());
 
   async function startRace(distanceM: number, difficulty: DifficultyId, opponent: OpponentKind) {
     if (checkMode) await setCheckMode(false);
@@ -660,6 +680,7 @@ async function main() {
     pref.set('race.difficulty', difficulty);
     pref.set('race.distance', String(distanceM));
     pref.set('race.opponent', opponent);
+    raceScreen.sound.stopPreview();
     const ghosts = await records.selectedGhosts();
     raceScreen.start({ mapId: hanRiver.id, distanceM, difficulty, opponent, ghosts });
     layoutRaceCamera();

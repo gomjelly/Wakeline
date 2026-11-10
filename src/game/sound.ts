@@ -48,12 +48,19 @@ export const FLOW_SOUNDS: { id: FlowSoundId; label: string }[] = [
 type NoiseKind = 'white' | 'pink' | 'brown';
 
 interface FlowNodes {
+  id: FlowSoundId;
   src: AudioBufferSourceNode;
   gain: GainNode;
   lp: BiquadFilterNode;
   bp: BiquadFilterNode | null;
   extra: AudioScheduledSourceNode[];
+  dest: AudioNode;
+  /** 다음 물방울 소리를 낼 시각(performance.now 기준) */
+  bubbleAt: number;
 }
+
+/** 미리듣기 종류: 전체(삑+휘슬+노+물) / 노 소리 / 물소리(+노) */
+export type PreviewKind = 'all' | 'stroke' | 'flow';
 
 export class RaceSound {
   private ctx: AudioContext | null = null;
@@ -61,7 +68,6 @@ export class RaceSound {
   private noise: Record<NoiseKind, AudioBuffer> = {} as Record<NoiseKind, AudioBuffer>;
   private flow: FlowNodes | null = null;
   private speed = 0;
-  private bubbleTimer = 0;
   private _volume = Number(readPref(PREF.volume, '0.7'));
   private _muted = readPref(PREF.muted, '0') === '1';
   private _stroke = readPref(PREF.stroke, 'scull') as StrokeSoundId;
@@ -224,7 +230,7 @@ export class RaceSound {
   }
 
   // ---------- 카운트다운 ----------
-  beep(final = false): void {
+  beep(final = false, dest: AudioNode = this.master): void {
     if (!this.ctx) return;
     this.onEvent?.(final ? 'beep-final' : 'beep');
     const t = this.now;
@@ -236,14 +242,14 @@ export class RaceSound {
     lp.frequency.value = 3000;
     const g = this.ctx.createGain();
     this.env(g, t, 0.22, 0.005, final ? 0.25 : 0.1, 0.08);
-    osc.connect(lp).connect(g).connect(this.master);
+    osc.connect(lp).connect(g).connect(dest);
     osc.start(t);
     osc.stop(t + 0.5);
   }
 
   // ---------- 휘슬 ----------
   /** 심판 호루라기: 높은 음 + 빠른 떨림(구슬 소리) + 바람 소리 */
-  private whistleBlast(start: number, dur: number, peak = 0.32): void {
+  private whistleBlast(start: number, dur: number, peak = 0.32, dest: AudioNode = this.master): void {
     const ctx = this.ctx!;
     const osc = ctx.createOscillator();
     osc.type = 'sine';
@@ -260,7 +266,7 @@ export class RaceSound {
     trill.connect(amDepth).connect(am.gain);
     const g = ctx.createGain();
     this.env(g, start, peak, 0.02, Math.max(0, dur - 0.12), 0.1);
-    osc.connect(am).connect(g).connect(this.master);
+    osc.connect(am).connect(g).connect(dest);
 
     const air = this.noiseSource('white');
     const bp = ctx.createBiquadFilter();
@@ -269,7 +275,7 @@ export class RaceSound {
     bp.Q.value = 3;
     const ag = ctx.createGain();
     this.env(ag, start, peak * 0.35, 0.02, Math.max(0, dur - 0.12), 0.1);
-    air.connect(bp).connect(ag).connect(this.master);
+    air.connect(bp).connect(ag).connect(dest);
 
     for (const n of [osc, trill, air]) {
       n.start(start);
@@ -277,10 +283,10 @@ export class RaceSound {
     }
   }
 
-  startWhistle(): void {
+  startWhistle(dest: AudioNode = this.master): void {
     if (!this.ctx) return;
     this.onEvent?.('start-whistle');
-    this.whistleBlast(this.now, 0.75);
+    this.whistleBlast(this.now, 0.75, 0.32, dest);
   }
 
   finishWhistle(): void {
@@ -298,7 +304,7 @@ export class RaceSound {
    * @param pan -1(왼쪽)~1(오른쪽)
    * @param level 0~1 (거리에 따른 크기, 내 배는 1)
    */
-  stroke(strength = 0.8, pan = 0, level = 1, preset: StrokeSoundId = this._stroke): void {
+  stroke(strength = 0.8, pan = 0, level = 1, preset: StrokeSoundId = this._stroke, dest: AudioNode = this.master): void {
     if (!this.ctx || level < 0.03) return;
     this.onEvent?.(level >= 1 ? 'stroke' : 'rival-stroke');
     const ctx = this.ctx;
@@ -307,7 +313,7 @@ export class RaceSound {
     out.pan.value = Math.max(-1, Math.min(1, pan));
     const lv = ctx.createGain();
     lv.gain.value = level;
-    out.connect(lv).connect(this.master);
+    out.connect(lv).connect(dest);
     const s = 0.5 + 0.5 * Math.max(0, Math.min(1, strength));
 
     switch (preset) {
@@ -348,10 +354,10 @@ export class RaceSound {
   }
 
   // ---------- 물소리 ----------
-  startFlow(): void {
-    if (!this.ctx || this.flow || this._flow === 'off') return;
+  /** 물소리 노드를 만든다(dest로 출력). 물소리 끄기면 null */
+  private createFlow(dest: AudioNode, id: FlowSoundId = this._flow): FlowNodes | null {
+    if (!this.ctx || id === 'off') return null;
     const ctx = this.ctx;
-    const id = this._flow;
     const kind: NoiseKind = id === 'classic' ? 'white' : id === 'hull' ? 'pink' : 'brown';
     const src = this.noiseSource(kind);
     const lp = ctx.createBiquadFilter();
@@ -360,7 +366,6 @@ export class RaceSound {
     let bp: BiquadFilterNode | null = null;
     const gain = ctx.createGain();
     gain.gain.value = 0;
-    const extra: AudioScheduledSourceNode[] = [];
 
     // 물결처럼 크기가 천천히 출렁이게
     const wobble = ctx.createGain();
@@ -370,7 +375,6 @@ export class RaceSound {
     const lfoDepth = ctx.createGain();
     lfoDepth.gain.value = id === 'lapping' ? 0.5 : 0.18;
     lfo.connect(lfoDepth).connect(wobble.gain);
-    extra.push(lfo);
 
     let node: AudioNode = src;
     if (id === 'hull') {
@@ -381,26 +385,18 @@ export class RaceSound {
       bp.Q.value = 0.6;
       node = node.connect(bp);
     }
-    node.connect(lp).connect(wobble).connect(gain).connect(this.master);
+    node.connect(lp).connect(wobble).connect(gain).connect(dest);
     src.start(0, Math.random() * 3);
     lfo.start();
-    this.flow = { src, gain, lp, bp, extra };
+    return { id, src, gain, lp, bp, extra: [lfo], dest, bubbleAt: 0 };
   }
 
-  /** 테스트용: 지금 물소리 크기 */
-  get flowLevel(): number {
-    return this.flow?.gain.gain.value ?? 0;
-  }
-
-  /** 배 속도(m/s)에 맞춰 물소리 크기와 음색을 바꾼다. 매 프레임 불러도 된다. */
-  setSpeed(mps: number): void {
-    this.speed = Math.max(0, mps);
-    if (!this.ctx || !this.flow) return;
-    const k = Math.min(1, this.speed / 5);
+  /** 속도(m/s)에 맞춰 물소리 크기·음색을 바꾸고, 가끔 물방울을 섞는다. */
+  private applyFlow(f: FlowNodes, mps: number): void {
+    const k = Math.min(1, Math.max(0, mps) / 5);
     const t = this.now;
-    const f = this.flow;
     let gain: number, cutoff: number;
-    switch (this._flow) {
+    switch (f.id) {
       case 'river':
         gain = 0.06 + 0.35 * k;
         cutoff = 350 + 900 * k;
@@ -426,50 +422,129 @@ export class RaceSound {
     f.gain.gain.setTargetAtTime(gain, t, 0.15);
     f.lp.frequency.setTargetAtTime(cutoff, t, 0.15);
 
-    // 강물·물결: 속도에 따라 보글보글 물방울을 가끔 섞는다
-    if (this._flow === 'river' || this._flow === 'lapping' || this._flow === 'rush') {
-      const perSec = (this._flow === 'lapping' ? 2 : 1) + 7 * k;
+    if (f.id === 'river' || f.id === 'lapping' || f.id === 'rush') {
+      const perSec = (f.id === 'lapping' ? 2 : 1) + 7 * k;
       const nowMs = performance.now();
-      if (nowMs > this.bubbleTimer) {
-        this.bubbleTimer = nowMs + (1000 / perSec) * (0.4 + Math.random() * 1.2);
-        const out = this.ctx.createStereoPanner();
+      if (nowMs > f.bubbleAt) {
+        f.bubbleAt = nowMs + (1000 / perSec) * (0.4 + Math.random() * 1.2);
+        const out = this.ctx!.createStereoPanner();
         out.pan.value = Math.random() * 1.6 - 0.8;
-        out.connect(this.master);
+        out.connect(f.dest);
         this.bubble(out, t, 0.012 + 0.02 * k);
       }
     }
   }
 
+  private killFlow(f: FlowNodes, fade = 0.2): void {
+    const t = this.now;
+    f.gain.gain.cancelScheduledValues(t);
+    f.gain.gain.setTargetAtTime(0, t, fade);
+    f.src.stop(t + fade * 5);
+    for (const x of f.extra) x.stop(t + fade * 5);
+  }
+
+  startFlow(): void {
+    if (!this.ctx || this.flow) return;
+    this.flow = this.createFlow(this.master);
+  }
+
+  /** 테스트용: 지금 물소리 크기 */
+  get flowLevel(): number {
+    return this.flow?.gain.gain.value ?? 0;
+  }
+
+  /** 배 속도(m/s)에 맞춰 물소리를 바꾼다. 매 프레임 불러도 된다. */
+  setSpeed(mps: number): void {
+    this.speed = Math.max(0, mps);
+    if (this.ctx && this.flow) this.applyFlow(this.flow, this.speed);
+  }
+
   stopFlow(): void {
     if (!this.ctx || !this.flow) return;
-    const f = this.flow;
-    f.gain.gain.setTargetAtTime(0, this.now, 0.2);
-    f.src.stop(this.now + 1);
-    for (const x of f.extra) x.stop(this.now + 1);
+    this.killFlow(this.flow);
     this.flow = null;
   }
 
-  /** 설정 화면 미리듣기: 물소리가 빨라졌다 느려지는 동안 노를 4번 젓는다(약 6초). */
-  async preview(): Promise<void> {
+  // ---------- 미리듣기 ----------
+  // 한 번에 하나만 재생한다. 미리듣기 소리는 전용 통로(bus)로만 내보내서,
+  // 멈출 때 통로를 끊으면 이미 예약된 소리까지 바로 사라진다.
+  private preview: {
+    kind: PreviewKind;
+    bus: GainNode;
+    timers: number[];
+    flow: FlowNodes | null;
+  } | null = null;
+  /** 미리듣기 상태가 바뀔 때(시작: 종류, 끝·멈춤: null) */
+  onPreviewChange?: (kind: PreviewKind | null) => void;
+
+  get previewing(): PreviewKind | null {
+    return this.preview?.kind ?? null;
+  }
+
+  /** 미리듣기를 처음부터 재생한다. 다른 미리듣기가 재생 중이면 먼저 멈춘다. */
+  async startPreview(kind: PreviewKind): Promise<void> {
     await this.ensure();
-    const wasFlowing = !!this.flow;
-    this.startFlow();
-    const steps = [0.5, 2.2, 3.6, 4.4, 4.6, 4.2, 3.4, 2.4, 1.4, 0.6, 0];
-    const total = (steps.length - 1) * 600;
-    const strokesAt = [400, 1900, 3400, 4900];
-    strokesAt.forEach((ms) => setTimeout(() => this.stroke(0.9), ms));
-    // 속도를 부드럽게 바꾸며 매 50ms마다 물소리를 갱신(물방울도 이때 섞인다)
-    const t0 = performance.now();
-    const iv = setInterval(() => {
-      const e = performance.now() - t0;
-      const x = Math.min(steps.length - 1, e / 600);
-      const i = Math.floor(x);
-      const v = steps[i] + (steps[Math.min(steps.length - 1, i + 1)] - steps[i]) * (x - i);
-      this.setSpeed(v);
-      if (e >= total) {
-        clearInterval(iv);
-        if (!wasFlowing) this.stopFlow();
-      }
-    }, 50);
+    this.stopPreview(false);
+    const ctx = this.ctx!;
+    const bus = ctx.createGain();
+    bus.connect(this.master);
+    const p = { kind, bus, timers: [] as number[], flow: null as FlowNodes | null };
+    this.preview = p;
+    const at = (ms: number, fn: () => void) =>
+      p.timers.push(window.setTimeout(() => {
+        if (this.preview === p) fn();
+      }, ms));
+
+    let offset = 0;
+    if (kind === 'all') {
+      this.beep(false, bus);
+      at(600, () => this.startWhistle(bus));
+      offset = 1500;
+    }
+    let endMs: number;
+    if (kind === 'stroke') {
+      [0, 1500, 3000].forEach((ms) => at(ms, () => this.stroke(0.9, 0, 1, this._stroke, bus)));
+      endMs = 3000 + 1100;
+    } else {
+      // 물소리가 빨라졌다 느려지는 동안 노를 4번 젓는다(약 6초)
+      const steps = [0.5, 2.2, 3.6, 4.4, 4.6, 4.2, 3.4, 2.4, 1.4, 0.6, 0];
+      const total = (steps.length - 1) * 600;
+      at(offset, () => {
+        p.flow = this.createFlow(bus);
+        const t0 = performance.now();
+        const iv = window.setInterval(() => {
+          if (this.preview !== p) {
+            window.clearInterval(iv);
+            return;
+          }
+          const x = Math.min(steps.length - 1, (performance.now() - t0) / 600);
+          const i = Math.floor(x);
+          const v = steps[i] + (steps[Math.min(steps.length - 1, i + 1)] - steps[i]) * (x - i);
+          if (p.flow) this.applyFlow(p.flow, v);
+        }, 50);
+        p.timers.push(iv);
+      });
+      [400, 1900, 3400, 4900].forEach((ms) => at(offset + ms, () => this.stroke(0.9, 0, 1, this._stroke, bus)));
+      endMs = offset + total + 600;
+    }
+    at(endMs, () => this.stopPreview());
+    this.onPreviewChange?.(kind);
+  }
+
+  /** 미리듣기를 멈춘다(재생 중인 소리도 바로 끊는다). */
+  stopPreview(notify = true): void {
+    const p = this.preview;
+    if (!p) return;
+    this.preview = null;
+    for (const id of p.timers) {
+      window.clearTimeout(id);
+      window.clearInterval(id);
+    }
+    if (p.flow) this.killFlow(p.flow, 0.03);
+    const t = this.now;
+    p.bus.gain.cancelScheduledValues(t);
+    p.bus.gain.setTargetAtTime(0, t, 0.02);
+    window.setTimeout(() => p.bus.disconnect(), 200);
+    if (notify) this.onPreviewChange?.(null);
   }
 }

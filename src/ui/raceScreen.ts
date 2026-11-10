@@ -392,9 +392,13 @@ export class RaceScreen {
     const input = $<HTMLInputElement>('saveName');
     input.value = defaultRecordName(this.startedAt, race.settings.distanceM, s);
     input.disabled = false;
-    $<HTMLButtonElement>('saveBtn').disabled = s.strokeCount === 0;
-    $('saveStatus').textContent =
-      s.strokeCount === 0 ? '스트로크가 없어 저장할 수 없습니다.' : `${distanceLabel(race.settings.distanceM)} 기록으로 저장됩니다.`;
+    // 완주한 레이스만 저장할 수 있다(미완주 기록은 고스트·최고 기록 비교에 맞지 않음).
+    const canSave = s.status === 'finished' && s.strokeCount > 0;
+    $<HTMLButtonElement>('saveBtn').disabled = !canSave;
+    $<HTMLInputElement>('saveName').disabled = !canSave;
+    $('saveStatus').textContent = canSave
+      ? `${distanceLabel(race.settings.distanceM)} 기록으로 저장됩니다.`
+      : '완주한 기록만 저장할 수 있어요.';
     $('resultOverlay').hidden = false;
   }
 
@@ -402,7 +406,7 @@ export class RaceScreen {
     const race = this.race;
     if (!race || this.saved || this.saving || !this.resultShown) return;
     const s = race.summary();
-    if (s.strokeCount === 0) return;
+    if (s.status !== 'finished' || s.strokeCount === 0) return;
     this.saving = true;
     const btn = $<HTMLButtonElement>('saveBtn');
     btn.disabled = true;

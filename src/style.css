@@ -193,6 +193,14 @@ select:disabled { opacity: 0.45; }
 .file-controls input[type='range'] { width: 100%; accent-color: var(--accent); }
 
 button.primary { background: var(--accent); border-color: var(--accent); color: #0b1220; font-weight: 700; }
+button:disabled,
+button.primary:disabled {
+  background: var(--panel-2);
+  border-color: var(--line);
+  color: var(--muted);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 button.wide { width: 100%; padding: 10px; font-size: 15px; }
 
 /* ---------- 카메라 점검 모드 ---------- */
@@ -447,6 +455,8 @@ input[type='text']:disabled { opacity: 0.7; }
 .sound-pick .row { flex-wrap: nowrap; }
 .sound-pick select { flex: 1; min-width: 0; }
 .sound-pick button { padding: 4px 10px; }
+.sound-row button.playing,
+.sound-pick button.playing { background: var(--accent); border-color: var(--accent); color: #0b1220; }
 
 .ghost-pick { margin: 4px 0 10px; }
 .ghost-head { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
