@@ -26,7 +26,9 @@ const autoSave = process.argv.includes('--auto-save'); // 결과가 나오면 �
 const autoGhosts = process.argv.includes('--ghosts'); // 같은 거리 최근 기록을 고스트로 자동 선택
 // --profile-dir=<폴더> : 기록·설정을 이 폴더에 따로 저장한다(테스트 기록이 실제 기록과 섞이지 않게)
 const profileDir = argValue('profile-dir');
-const testVideo = argValue('test-video'); // --test-video=<파일> : 시작하면 이 동영상을 입력으로 연다
+const testVideo = argValue('test-video');
+// --window-size=1280x720 : 창 크기(해상도별 화면 배치 확인용)
+const windowSize = (argValue('window-size') || '').split('x').map(Number); // --test-video=<파일> : 시작하면 이 동영상을 입력으로 연다
 if (profileDir) app.setPath('userData', path.resolve(profileDir));
 const snapshotDir = argValue('snapshot-dir');
 const DEV_URL = 'http://127.0.0.1:5173';
@@ -125,7 +127,8 @@ function createWindow() {
   const display = findDisplay(settings.displayId) ?? screen.getPrimaryDisplay();
 
   mainWindow = new BrowserWindow({
-    ...centeredBounds(display),
+    ...centeredBounds(display, windowSize[0] || 1280, windowSize[1] || 800),
+    useContentSize: Boolean(windowSize[0]),
     title: 'Wakeline',
     backgroundColor: '#0b1220',
     autoHideMenuBar: true,

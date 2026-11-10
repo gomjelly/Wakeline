@@ -286,10 +286,7 @@ body.race-mode #camWrap {
   position: fixed;
   right: 20px;
   bottom: 20px;
-  /* 세로 영상도 HUD를 가리지 않게 높이를 제한하고 비율대로 너비를 맞춘다 */
-  height: min(36vh, 300px);
-  width: auto;
-  max-width: 34vw;
+  /* 크기는 화면 해상도와 영상 비율에 맞춰 JS(layoutRaceCamera)가 px로 정한다 → --cam-w, --cam-h */
   z-index: 30;
   border-radius: 10px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
@@ -309,7 +306,13 @@ body.race-mode #camWrap.corner-top-left { bottom: auto; top: 20px; right: auto; 
   font-variant-numeric: tabular-nums;
 }
 .hud-left { left: 20px; min-width: 300px; }
-.hud-right { right: 20px; min-width: 230px; }
+.hud-right {
+  right: 20px;
+  min-width: 230px;
+  /* 카메라 창과 겹치지 않게 그 위까지만 쓴다 */
+  max-height: calc(100vh - var(--cam-h, 300px) - 64px);
+  overflow: hidden;
+}
 .hud-dist { font-size: 46px; font-weight: 800; line-height: 1; }
 .hud-dist small { font-size: 18px; color: var(--muted); font-weight: 600; }
 .hud-bar { height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.12); margin: 10px 0 12px; overflow: hidden; }
@@ -328,10 +331,12 @@ body.race-mode #camWrap.corner-top-left { bottom: auto; top: 20px; right: auto; 
 
 .hud-progress {
   position: absolute;
-  left: 50%;
+  /* 왼쪽 단축키 안내와 오른쪽 카메라 창 사이 가운데 */
+  left: 330px;
+  right: calc(var(--cam-w, 320px) + 44px);
+  max-width: 760px;
+  margin: 0 auto;
   bottom: 26px;
-  transform: translateX(-50%);
-  width: min(52vw, 760px);
   height: 10px;
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.15);
@@ -346,6 +351,22 @@ body.race-mode #camWrap.corner-top-left { bottom: auto; top: 20px; right: auto; 
   border: 2px solid #fff;
 }
 .hud-progress .pip.me { width: 22px; height: 22px; margin: -11px 0 0 -11px; z-index: 2; }
+/* 레이스 중 반투명 스트로크 그래프 */
+.race-graph {
+  position: absolute;
+  left: 20px;
+  bottom: 48px;
+  width: min(30vw, 400px);
+  height: clamp(70px, 12vh, 110px);
+  background: rgba(8, 14, 26, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  backdrop-filter: blur(2px);
+  opacity: 0.8;
+  pointer-events: none;
+}
+.race-graph canvas { width: 100%; height: 100%; display: block; }
+.race-graph-label { position: absolute; top: 4px; right: 8px; font-size: 11px; color: rgba(255, 255, 255, 0.55); }
 .hud-keys { position: absolute; left: 20px; bottom: 20px; font-size: 13px; color: rgba(255, 255, 255, 0.6); }
 
 .hud-countdown {
@@ -422,6 +443,11 @@ input[type='text']:disabled { opacity: 0.7; }
 .sound-row input[type='range'] { flex: 1; min-width: 60px; accent-color: var(--accent); }
 .sound-row button { padding: 4px 10px; }
 
+.sound-pick { display: grid; gap: 2px; margin-bottom: 8px; }
+.sound-pick .row { flex-wrap: nowrap; }
+.sound-pick select { flex: 1; min-width: 0; }
+.sound-pick button { padding: 4px 10px; }
+
 .ghost-pick { margin: 4px 0 10px; }
 .ghost-head { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
 .ghost-list { display: grid; gap: 4px; max-height: 180px; overflow-y: auto; }
@@ -449,10 +475,19 @@ input[type='text']:disabled { opacity: 0.7; }
   padding: 6px 8px;
   font-size: 13px;
 }
+.record-list li.dist-head {
+  display: block;
+  background: none;
+  padding: 6px 2px 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+}
 .record-list .rname { cursor: text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .record-list .rmeta { grid-column: 1; font-size: 11px; color: var(--muted); }
 .record-list .rdel { grid-row: 1 / 3; grid-column: 2; align-self: center; padding: 4px 8px; font-size: 12px; }
 .hud-standings li.ghost { opacity: 0.85; font-style: italic; }
+.hud-standings li.more { justify-content: center; color: var(--muted); padding: 0; line-height: 1; }
 .hud-standings .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
 .hud-progress .pip.ghost { opacity: 0.75; border-style: dashed; }
 

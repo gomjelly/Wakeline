@@ -72,7 +72,11 @@ export class RecordsPanel {
   private renderGhosts(): void {
     const box = $('ghostList');
     box.innerHTML = '';
-    const list = this.ghostCandidates();
+    $('ghostHead').textContent = `👻 ${distanceLabel(this.distanceM)} 고스트 — ${distanceLabel(this.distanceM)} 기록만 (최대 ${MAX_GHOSTS}개)`;
+    const list = [...this.ghostCandidates()].sort((a, b) => {
+      if (a.status !== b.status) return a.status === 'finished' ? -1 : 1;
+      return a.status === 'finished' ? a.totalTimeMs - b.totalTimeMs : b.coveredM - a.coveredM;
+    });
     if (!list.length) {
       box.innerHTML = `<div class="ghost-empty">${distanceLabel(this.distanceM)} 저장 기록이 아직 없습니다. 레이스를 마치고 결과 화면에서 저장하세요.</div>`;
       return;
@@ -107,7 +111,18 @@ export class RecordsPanel {
       return;
     }
     const best = this.bestIds();
-    for (const s of this.sessions) {
+    // 거리별로 묶어서 보여준다(거리 짧은 순, 같은 거리는 최근 순)
+    const sorted = [...this.sessions].sort((a, b) => a.distanceM - b.distanceM || b.startedAt.localeCompare(a.startedAt));
+    let lastDist = -1;
+    for (const s of sorted) {
+      if (s.distanceM !== lastDist) {
+        lastDist = s.distanceM;
+        const head = document.createElement('li');
+        head.className = 'dist-head';
+        const n = sorted.filter((x) => x.distanceM === s.distanceM).length;
+        head.textContent = `${distanceLabel(s.distanceM)} 기록 · ${n}개`;
+        ul.appendChild(head);
+      }
       const li = document.createElement('li');
       const name = document.createElement('span');
       name.className = 'rname';

@@ -51,13 +51,17 @@
             </select>
           </label>
           <div class="ghost-pick">
-            <div class="ghost-head">👻 고스트 (저장한 기록과 대결, 최대 3개)</div>
+            <div id="ghostHead" class="ghost-head">👻 고스트 (저장한 기록과 대결, 최대 3개)</div>
             <div id="ghostList" class="ghost-list"></div>
           </div>
           <div class="row sound-row">
             <label class="check"><input type="checkbox" id="soundOn" /> 🔊 효과음</label>
             <input type="range" id="soundVolume" min="0" max="100" step="5" title="볼륨" />
-            <button id="soundTest" title="소리 들어보기">▶</button>
+            <button id="soundTest" title="휘슬 + 노 + 물소리 들어보기">▶</button>
+          </div>
+          <div class="sound-pick">
+            <label>노 젓는 소리 <span class="row"><select id="strokeSound"></select><button id="strokePreview" title="이 소리 들어보기">▶</button></span></label>
+            <label>물소리 <span class="row"><select id="flowSound"></select><button id="flowPreview" title="이 소리 들어보기">▶</button></span></label>
           </div>
           <button id="raceStartBtn" class="primary wide">🚣 레이스 시작</button>
           <p class="hint">시작하면 5초 카운트다운 후 출발합니다. 스페이스: 일시정지 · Esc: 종료</p>
@@ -196,7 +200,11 @@
       <div id="hudProgress" class="hud-progress"></div>
       <div id="hudCountdown" class="hud-countdown" hidden></div>
       <div id="hudToast" class="hud-toast" hidden></div>
-      <div class="hud-keys">Space 일시정지 · Esc 종료 · M 소리</div>
+      <div id="raceGraphWrap" class="race-graph">
+        <canvas id="raceGraph"></canvas>
+        <span class="race-graph-label">스트로크 리듬 · G</span>
+      </div>
+      <div class="hud-keys">Space 일시정지 · Esc 종료 · M 소리 · G 그래프</div>
 
       <div id="pauseOverlay" class="race-overlay" hidden>
         <div class="race-card">

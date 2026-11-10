@@ -7,6 +7,7 @@ import type { OpponentKind } from './game/race';
 import { formatTime } from './game/race';
 import { RaceScreen } from './ui/raceScreen';
 import { RecordsPanel } from './ui/recordsPanel';
+import { FLOW_SOUNDS, STROKE_SOUNDS, type FlowSoundId, type StrokeSoundId } from './game/sound';
 import { Camera, listCameras, savedCameraId } from './pose/camera';
 import { HandleIndexTracker, type PoseMetrics } from './pose/handleIndex';
 import type { Landmark } from './pose/landmarks';
@@ -143,6 +144,7 @@ async function main() {
     $('sRes').textContent = `${info.width}×${info.height}`;
     handle.reset();
     resetMediaClock();
+    layoutRaceCamera();
   }
 
   function showSourceError(err: unknown) {
@@ -432,7 +434,7 @@ async function main() {
       graph.push({ t: performance.now(), index: latestMetrics.index, knee: latestMetrics.kneeAngleDeg });
       metricSamples.push(latestMetrics);
       if (checkMode) check.push({ t, landmarks, metrics: latestMetrics, aspect: camSize.width / camSize.height });
-      if (raceScreen.active) raceScreen.onPose(performance.now(), latestMetrics.index, latestMetrics.status !== 'none');
+      if (raceScreen.active) raceScreen.onPose(performance.now(), latestMetrics.index, latestMetrics.status !== 'none', latestMetrics.kneeAngleDeg);
       recorder.push(t, landmarks);
     }
     vfcHandle = video.requestVideoFrameCallback(onVideoFrame);
@@ -569,6 +571,7 @@ async function main() {
 
   const raceScreen = new RaceScreen(config, hanRiver, {
     onExit: () => {
+      layoutRaceCamera();
       if (stressToggle.checked) setStress(true);
       records.refresh();
     },
@@ -594,14 +597,61 @@ async function main() {
   soundOn.addEventListener('change', () => raceScreen.sound.setMuted(!soundOn.checked));
   soundVolume.addEventListener('input', () => raceScreen.sound.setVolume(Number(soundVolume.value) / 100));
   $('soundTest').addEventListener('click', async () => {
-    // 미리 듣기: 삑 → 휘슬 → 노 젓는 소리
+    // 미리 듣기: 삑 → 휘슬 → 물소리와 함께 노 젓기
     const snd = raceScreen.sound;
     await snd.ensure();
     snd.beep();
     setTimeout(() => snd.startWhistle(), 600);
-    setTimeout(() => snd.stroke(0.9), 1700);
-    setTimeout(() => snd.stroke(0.9), 3300);
+    setTimeout(() => snd.preview(), 1500);
   });
+
+  // ---------- 레이스 중 카메라 창 크기 ----------
+  // 화면 해상도와 영상 비율(가로/세로 영상)에 맞춰 오른쪽 아래 카메라 창 크기를 정한다.
+  // 순위표·진행 막대는 --cam-w / --cam-h 를 보고 카메라 창을 피해 배치된다.
+  function layoutRaceCamera() {
+    const root = document.documentElement;
+    if (!document.body.classList.contains('race-mode')) {
+      camWrap.style.width = '';
+      camWrap.style.height = '';
+      root.style.removeProperty('--cam-w');
+      root.style.removeProperty('--cam-h');
+      return;
+    }
+    const aspect = camSize.width / Math.max(1, camSize.height);
+    const maxW = Math.min(420, Math.max(160, window.innerWidth * 0.24));
+    const maxH = Math.max(120, window.innerHeight * 0.3);
+    let w = maxW;
+    let h = w / aspect;
+    if (h > maxH) {
+      h = maxH;
+      w = h * aspect;
+    }
+    camWrap.style.width = `${Math.round(w)}px`;
+    camWrap.style.height = `${Math.round(h)}px`;
+    root.style.setProperty('--cam-w', `${Math.round(w)}px`);
+    root.style.setProperty('--cam-h', `${Math.round(h)}px`);
+  }
+  window.addEventListener('resize', layoutRaceCamera);
+
+  // 노 젓는 소리 / 물소리 고르기
+  const strokeSound = $<HTMLSelectElement>('strokeSound');
+  const flowSound = $<HTMLSelectElement>('flowSound');
+  for (const s of STROKE_SOUNDS) strokeSound.add(new Option(s.label, s.id));
+  for (const s of FLOW_SOUNDS) flowSound.add(new Option(s.label, s.id));
+  strokeSound.value = raceScreen.sound.strokeSound;
+  flowSound.value = raceScreen.sound.flowSound;
+  strokeSound.addEventListener('change', async () => {
+    raceScreen.sound.setStrokeSound(strokeSound.value as StrokeSoundId);
+    await raceScreen.sound.ensure();
+    raceScreen.sound.stroke(0.9);
+  });
+  flowSound.addEventListener('change', () => raceScreen.sound.setFlowSound(flowSound.value as FlowSoundId));
+  $('strokePreview').addEventListener('click', async () => {
+    const snd = raceScreen.sound;
+    await snd.ensure();
+    [0, 1500, 3000].forEach((ms) => setTimeout(() => snd.stroke(0.9), ms));
+  });
+  $('flowPreview').addEventListener('click', () => raceScreen.sound.preview());
 
   async function startRace(distanceM: number, difficulty: DifficultyId, opponent: OpponentKind) {
     if (checkMode) await setCheckMode(false);
@@ -612,6 +662,7 @@ async function main() {
     pref.set('race.opponent', opponent);
     const ghosts = await records.selectedGhosts();
     raceScreen.start({ mapId: hanRiver.id, distanceM, difficulty, opponent, ghosts });
+    layoutRaceCamera();
   }
   $('raceStartBtn').addEventListener('click', () =>
     startRace(Number(raceDistance.value), raceDifficulty.value as DifficultyId, raceOpponent.value as OpponentKind),
@@ -730,7 +781,9 @@ async function main() {
     const tv = await api.getTestVideo();
     if (tv) {
       api.sendMetrics(`test video: ${tv.name} (${(tv.data.byteLength / 1e6).toFixed(1)} MB)`);
-      openFile(new File([new Uint8Array(tv.data)], tv.name, { type: 'video/webm' }));
+      const ext = tv.name.split('.').pop()?.toLowerCase();
+      const type = ext === 'mp4' || ext === 'm4v' ? 'video/mp4' : ext === 'mov' ? 'video/quicktime' : 'video/webm';
+      openFile(new File([new Uint8Array(tv.data)], tv.name, { type }));
     }
 
     if (cfg.startCheck) await setCheckMode(true);

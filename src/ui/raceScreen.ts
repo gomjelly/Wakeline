@@ -1,10 +1,11 @@
 // 레이스 화면: 3D 장면 + HUD + 카운트다운 + 일시정지/종료 + 결과·기록 저장 (FR-GAM-02~07, FR-REC-01~03).
 
 import type { GameConfig, MapDefinition } from '../config';
-import { defaultRecordName, saveRace, shortName, type SessionRecord } from '../data/records';
+import { defaultRecordName, distanceLabel, saveRace, shortName, type SessionRecord } from '../data/records';
 import { Race, formatTime, type RaceSettings, type RaceSummary } from '../game/race';
 import { RaceScene, type BoatSpec } from '../game/raceScene';
 import { RaceSound } from '../game/sound';
+import { IndexGraph } from './graph';
 import type { RacePhase } from '../game/race';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -49,6 +50,14 @@ export class RaceScreen {
   private saved: SessionRecord | null = null;
   private saving = false;
   readonly sound = new RaceSound();
+  private graph: IndexGraph;
+  private graphOn = (() => {
+    try {
+      return localStorage.getItem('wakeline.raceGraph') !== '0';
+    } catch {
+      return true;
+    }
+  })();
   private prevPhase: RacePhase = 'countdown';
   private lastBeepSec = 0;
   private prevStrokePhase = 'recovery';
@@ -66,6 +75,8 @@ export class RaceScreen {
     $('againBtn').addEventListener('click', () => this.settings && this.start(this.settings));
     $('homeBtn').addEventListener('click', () => this.exit());
     $('saveBtn').addEventListener('click', () => this.save());
+    this.graph = new IndexGraph($<HTMLCanvasElement>('raceGraph'), 8000, cfg.detection.catchThreshold, cfg.detection.finishThreshold);
+    $('raceGraphWrap').hidden = !this.graphOn;
     window.addEventListener('keydown', (e) => this.onKey(e));
   }
 
@@ -121,9 +132,10 @@ export class RaceScreen {
   }
 
   /** 자세 인식 결과마다 호출 */
-  onPose(t: number, index: number | null, hasPerson: boolean): void {
+  onPose(t: number, index: number | null, hasPerson: boolean, kneeDeg: number | null = null): void {
     if (!this.race) return;
     this.race.onPose(t, index);
+    this.graph.push({ t: performance.now(), index, knee: kneeDeg });
     if (hasPerson) this.lastSeenPerson = t;
   }
 
@@ -150,6 +162,7 @@ export class RaceScreen {
       dt,
     );
     this.updateHud(now);
+    if (this.graphOn) this.graph.draw(now);
 
     if ((race.phase === 'finished' || race.phase === 'aborted') && !this.resultShown) {
       this.resultShown = true;
@@ -251,7 +264,25 @@ export class RaceScreen {
     $('hudRank').textContent = String(st.indexOf(me) + 1);
     const list = $('hudStandings');
     list.innerHTML = '';
-    for (const b of st) {
+    // 카메라 창 위 남은 높이만큼만 줄을 보여준다. 넘치면 위쪽 순위 + 내 줄을 남기고 사이를 "⋯"로 줄인다.
+    const camH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--cam-h')) || 300;
+    const rows = Math.max(2, Math.floor((window.innerHeight - camH - 64 - 100) / 27));
+    const myIdx = st.indexOf(me);
+    let shown = st.map((_, i) => i);
+    if (st.length > rows) {
+      const top = st.slice(0, rows - 1).map((_, i) => i);
+      shown = myIdx < rows - 1 ? st.slice(0, rows).map((_, i) => i) : [...top.slice(0, rows - 2), myIdx - 1, myIdx].filter((v, i, a) => a.indexOf(v) === i);
+    }
+    let prev = -1;
+    for (const i of shown) {
+      const b = st[i];
+      if (i > prev + 1) {
+        const gapLi = document.createElement('li');
+        gapLi.className = 'more';
+        gapLi.textContent = '⋯';
+        list.appendChild(gapLi);
+      }
+      prev = i;
       const li = document.createElement('li');
       if (b.id === 'player') li.className = 'me';
       else if (b.id.startsWith('ghost')) li.className = 'ghost';
@@ -362,7 +393,8 @@ export class RaceScreen {
     input.value = defaultRecordName(this.startedAt, race.settings.distanceM, s);
     input.disabled = false;
     $<HTMLButtonElement>('saveBtn').disabled = s.strokeCount === 0;
-    $('saveStatus').textContent = s.strokeCount === 0 ? '스트로크가 없어 저장할 수 없습니다.' : '';
+    $('saveStatus').textContent =
+      s.strokeCount === 0 ? '스트로크가 없어 저장할 수 없습니다.' : `${distanceLabel(race.settings.distanceM)} 기록으로 저장됩니다.`;
     $('resultOverlay').hidden = false;
   }
 
@@ -379,7 +411,7 @@ export class RaceScreen {
       this.saved = rec;
       $<HTMLInputElement>('saveName').value = rec.name;
       $<HTMLInputElement>('saveName').disabled = true;
-      $('saveStatus').textContent = `✓ "${rec.name}" 으로 저장했습니다. 다음 레이스에서 고스트로 불러올 수 있어요.`;
+      $('saveStatus').textContent = `✓ ${distanceLabel(rec.distanceM)} 기록 "${rec.name}"(으)로 저장했습니다. 다음 ${distanceLabel(rec.distanceM)} 레이스에서 고스트로 불러올 수 있어요.`;
       this.hooks.onSaved?.(rec);
     } catch (err) {
       btn.disabled = false;
@@ -401,7 +433,15 @@ export class RaceScreen {
     }
     const phase = this.race.phase;
     const done = phase === 'finished' || phase === 'aborted';
-    if (e.code === 'KeyM') {
+    if (e.code === 'KeyG') {
+      this.graphOn = !this.graphOn;
+      $('raceGraphWrap').hidden = !this.graphOn;
+      try {
+        localStorage.setItem('wakeline.raceGraph', this.graphOn ? '1' : '0');
+      } catch {
+        /* 무시 */
+      }
+    } else if (e.code === 'KeyM') {
       this.sound.setMuted(!this.sound.muted);
       this.toast(this.sound.muted ? '🔇 소리 끔 (M)' : '🔊 소리 켬 (M)', performance.now());
       this.hooks.onMuteChange?.(this.sound.muted);
