@@ -51,7 +51,23 @@
             <button id="camToggle" class="cam-toggle on" aria-pressed="true">카메라 끄기</button>
             <span class="hint">단축키 C</span>
           </div>
-          <label>장치 <select id="camSelect"></select></label>
+          <label>입력 <select id="camSelect"></select></label>
+          <input type="file" id="fileInput" accept="video/*,.mp4,.webm,.mov,.m4v,.mkv" hidden />
+          <div id="fileControls" class="file-controls" hidden>
+            <div class="row">
+              <button id="playBtn">⏸ 일시정지</button>
+              <span id="timeLabel" class="time">0:00 / 0:00</span>
+              <select id="speedSelect" title="재생 속도">
+                <option value="0.25">0.25×</option>
+                <option value="0.5">0.5×</option>
+                <option value="1" selected>1×</option>
+                <option value="1.5">1.5×</option>
+                <option value="2">2×</option>
+              </select>
+            </div>
+            <input type="range" id="seekBar" min="0" max="1000" value="0" />
+            <p class="hint">스페이스: 재생/일시정지 · 동영상은 창에 끌어다 놓아도 열립니다</p>
+          </div>
           <label>해상도
             <select id="resSelect">
               <option value="640x480">640 × 480</option>

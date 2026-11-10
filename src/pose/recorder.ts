@@ -8,6 +8,8 @@ export interface PoseRecording {
   width: number;
   height: number;
   model: string;
+  /** 'camera' 또는 'file:<파일명>' */
+  source: string;
   /** [t(ms, 녹화 시작 기준), 관절 33개 × [x, y, z, visibility]] 또는 사람 없음이면 null */
   frames: [number, number[][] | null][];
 }
@@ -17,7 +19,7 @@ const r4 = (v: number) => Math.round(v * 10000) / 10000;
 export class PoseRecorder {
   private frames: PoseRecording['frames'] = [];
   private t0 = 0;
-  private meta = { width: 0, height: 0, model: '' };
+  private meta = { width: 0, height: 0, model: '', source: '' };
   recording = false;
 
   get frameCount(): number {
@@ -28,10 +30,11 @@ export class PoseRecorder {
     return this.frames.length ? this.frames[this.frames.length - 1][0] : 0;
   }
 
-  start(width: number, height: number, model: string): void {
+  /** @param t0 기록 시각의 기준점. 동영상 입력이면 영상 시계 값을 넘긴다. */
+  start(width: number, height: number, model: string, source: string, t0 = performance.now()): void {
     this.frames = [];
-    this.t0 = performance.now();
-    this.meta = { width, height, model };
+    this.t0 = t0;
+    this.meta = { width, height, model, source };
     this.recording = true;
   }
 

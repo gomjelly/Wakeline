@@ -102,64 +102,208 @@ async function main() {
   modelSelect.addEventListener('change', initModel);
   delegateSelect.addEventListener('change', initModel);
 
-  // ---------- 카메라 ----------
+  // ---------- 영상 입력 (카메라 / 동영상 파일) ----------
   resSelect.value = pref.get('res', '1280x720');
 
+  const FILE_PICK = '__file_pick__';
+  const FILE_LOADED = '__file_loaded__';
+  const fileInput = $<HTMLInputElement>('fileInput');
+  const fileControls = $<HTMLDivElement>('fileControls');
+  const playBtn = $<HTMLButtonElement>('playBtn');
+  const seekBar = $<HTMLInputElement>('seekBar');
+  const timeLabel = $<HTMLSpanElement>('timeLabel');
+  const speedSelect = $<HTMLSelectElement>('speedSelect');
+  const camToggle = $<HTMLButtonElement>('camToggle');
+
+  let mode: 'camera' | 'file' = 'camera';
+  let currentFile: File | null = null;
+  let cameraId: string | null = savedCameraId();
+  let cameraList: { deviceId: string; label: string }[] = [];
+
+  function applySourceInfo(info: { width: number; height: number }) {
+    armFrameLoop();
+    camSize = { width: info.width, height: info.height };
+    camWrap.style.aspectRatio = `${info.width} / ${info.height}`;
+    $('sRes').textContent = `${info.width}×${info.height}`;
+    handle.reset();
+    resetMediaClock();
+  }
+
+  function showSourceError(err: unknown) {
+    console.error(err);
+    badge.className = 'badge none';
+    badge.textContent = `${mode === 'file' ? '영상' : '카메라'} 오류: ${(err as Error).message}`;
+  }
+
   async function startCamera(deviceId: string | null) {
+    mode = 'camera';
+    cameraId = deviceId;
+    syncSourceUi();
     const [w, h] = resSelect.value.split('x').map(Number);
     badge.className = 'badge none';
     badge.textContent = '카메라 연결 중';
     try {
       const info = await camera.start(deviceId, w, h);
-      armFrameLoop();
-      camSize = { width: info.width, height: info.height };
-      camWrap.style.aspectRatio = `${info.width} / ${info.height}`;
-      $('sRes').textContent = `${info.width}×${info.height}`;
+      cameraId = savedCameraId();
       pref.set('res', resSelect.value);
-      handle.reset();
+      applySourceInfo(info);
     } catch (err) {
-      console.error(err);
-      badge.textContent = `카메라 오류: ${(err as Error).message}`;
+      showSourceError(err);
     }
+  }
+
+  async function startVideoFile(file: File) {
+    mode = 'file';
+    currentFile = file;
+    fillSourceSelect(); // 목록에 '🎞 파일명' 항목을 넣는다
+    badge.className = 'badge none';
+    badge.textContent = '영상 여는 중';
+    try {
+      const info = await camera.startFile(file);
+      video.playbackRate = Number(speedSelect.value);
+      applySourceInfo(info);
+    } catch (err) {
+      showSourceError(err);
+    }
+    syncSourceUi();
+  }
+
+  /** 현재 모드의 입력을 (다시) 시작한다. */
+  function startSource() {
+    return mode === 'file' && currentFile ? startVideoFile(currentFile) : startCamera(cameraId);
+  }
+
+  function openFile(file: File) {
+    if (!file.type.startsWith('video/') && !/\.(mp4|webm|mov|m4v|mkv|ogv)$/i.test(file.name)) {
+      badge.className = 'badge none';
+      badge.textContent = '동영상 파일이 아닙니다';
+      return;
+    }
+    mode = 'file';
+    currentFile = file;
+    if (cameraOn) startVideoFile(file);
+    else setCameraOn(true);
+  }
+
+  function fillSourceSelect() {
+    camSelect.innerHTML = '';
+    const add = (value: string, label: string, disabled = false) => {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = label;
+      opt.disabled = disabled;
+      camSelect.appendChild(opt);
+    };
+    for (const c of cameraList) add(c.deviceId, `📷 ${c.label}`);
+    if (!cameraList.length) add('', '카메라 없음', true);
+    if (currentFile) add(FILE_LOADED, `🎞 ${currentFile.name}`);
+    add(FILE_PICK, '📁 동영상 파일 열기…');
+    syncSourceUi();
+  }
+
+  function syncSourceUi() {
+    const isFile = mode === 'file';
+    if (isFile && currentFile) camSelect.value = FILE_LOADED;
+    else if (cameraId && cameraList.some((c) => c.deviceId === cameraId)) camSelect.value = cameraId;
+    else if (!cameraList.length) camSelect.value = '';
+    fileControls.hidden = !isFile;
+    resSelect.disabled = isFile;
+    const what = isFile ? '영상' : '카메라';
+    camToggle.textContent = cameraOn ? `${what} 끄기` : `${what} 켜기`;
+    playBtn.textContent = video.paused ? '▶ 재생' : '⏸ 일시정지';
   }
 
   async function refreshCameraList() {
-    const cams = await listCameras();
-    const current = video.srcObject instanceof MediaStream
-      ? video.srcObject.getVideoTracks()[0]?.getSettings().deviceId
-      : savedCameraId();
-    camSelect.innerHTML = '';
-    for (const c of cams) {
-      const opt = document.createElement('option');
-      opt.value = c.deviceId;
-      opt.textContent = c.label;
-      camSelect.appendChild(opt);
+    try {
+      cameraList = await listCameras();
+    } catch {
+      cameraList = [];
     }
-    if (current && cams.some((c) => c.deviceId === current)) camSelect.value = current;
-    if (!cams.length) {
-      const opt = document.createElement('option');
-      opt.textContent = '카메라 없음';
-      camSelect.appendChild(opt);
-    }
+    fillSourceSelect();
   }
 
-  // ---------- 카메라 켜기/끄기 ----------
-  // 끄면 스트림을 완전히 멈춰 카메라 표시등도 꺼지고, 자세 인식도 쉰다.
-  const camToggle = $<HTMLButtonElement>('camToggle');
+  camSelect.addEventListener('change', () => {
+    const v = camSelect.value;
+    if (v === FILE_PICK) {
+      syncSourceUi(); // 고르기 전 선택으로 되돌려 둔다
+      fileInput.value = '';
+      fileInput.click();
+      return;
+    }
+    if (v === FILE_LOADED) mode = 'file';
+    else {
+      mode = 'camera';
+      cameraId = v;
+    }
+    if (cameraOn) startSource();
+    else setCameraOn(true);
+  });
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files?.[0];
+    if (f) openFile(f);
+  });
+  resSelect.addEventListener('change', () => (cameraOn ? startCamera(cameraId) : setCameraOn(true)));
+  navigator.mediaDevices.addEventListener('devicechange', refreshCameraList);
+
+  // 창에 동영상 파일을 끌어다 놓아도 열린다.
+  window.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    document.body.classList.add('dragging');
+  });
+  window.addEventListener('dragleave', (e) => {
+    if (e.relatedTarget === null) document.body.classList.remove('dragging');
+  });
+  window.addEventListener('drop', (e) => {
+    e.preventDefault();
+    document.body.classList.remove('dragging');
+    const f = e.dataTransfer?.files?.[0];
+    if (f) openFile(f);
+  });
+
+  // ---------- 동영상 재생 조작 ----------
+  const fmt = (s: number) => {
+    if (!Number.isFinite(s)) return '0:00';
+    const m = Math.floor(s / 60);
+    return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  };
+  function togglePlay() {
+    if (mode !== 'file' || !cameraOn) return;
+    if (video.paused) video.play();
+    else video.pause();
+  }
+  playBtn.addEventListener('click', togglePlay);
+  video.addEventListener('play', syncSourceUi);
+  video.addEventListener('pause', syncSourceUi);
+  seekBar.addEventListener('input', () => {
+    if (mode !== 'file' || !Number.isFinite(video.duration)) return;
+    video.currentTime = (Number(seekBar.value) / 1000) * video.duration;
+    handle.reset();
+  });
+  speedSelect.addEventListener('change', () => {
+    video.playbackRate = Number(speedSelect.value);
+  });
+  function updateSeekUi() {
+    if (mode !== 'file' || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    if (document.activeElement !== seekBar) seekBar.value = String(Math.round((video.currentTime / video.duration) * 1000));
+    timeLabel.textContent = `${fmt(video.currentTime)} / ${fmt(video.duration)}`;
+  }
+
+  // ---------- 켜기/끄기 ----------
+  // 끄면 카메라 스트림을 완전히 멈춰 표시등도 꺼지고, 자세 인식도 쉰다.
   let toggling = false;
 
   async function setCameraOn(on: boolean) {
     if (toggling) return;
     toggling = true;
     cameraOn = on;
-    camToggle.textContent = on ? '카메라 끄기' : '카메라 켜기';
     camToggle.classList.toggle('on', on);
     camToggle.classList.toggle('off', !on);
     camToggle.setAttribute('aria-pressed', String(on));
     camWrap.classList.toggle('off', !on);
+    syncSourceUi();
     try {
       if (on) {
-        await startCamera(camSelect.value || savedCameraId());
+        await startSource();
       } else {
         if (vfcHandle !== null) video.cancelVideoFrameCallback(vfcHandle);
         vfcHandle = null;
@@ -168,47 +312,64 @@ async function main() {
         latestMetrics = null;
         handle.reset();
         badge.className = 'badge off';
-        badge.textContent = '카메라 꺼짐';
+        badge.textContent = mode === 'file' ? '영상 꺼짐' : '카메라 꺼짐';
         $('sRes').textContent = '-';
       }
     } finally {
       toggling = false;
+      syncSourceUi();
     }
   }
 
   camToggle.addEventListener('click', () => setCameraOn(!cameraOn));
   window.addEventListener('keydown', (e) => {
-    // 한글 입력 상태에서도 동작하도록 e.code로 판별
-    if (e.code !== 'KeyC' || e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-    e.preventDefault();
-    setCameraOn(!cameraOn);
+    // 한글 입력 상태에서도 동작하도록 e.code로 판별
+    if (e.code === 'KeyC') {
+      e.preventDefault();
+      setCameraOn(!cameraOn);
+    } else if (e.code === 'Space' && mode === 'file') {
+      e.preventDefault();
+      togglePlay();
+    }
   });
 
-  // 꺼진 상태에서 장치/해상도를 바꾸면 바로 켠다.
-  camSelect.addEventListener('change', () => (cameraOn ? startCamera(camSelect.value) : setCameraOn(true)));
-  resSelect.addEventListener('change', () =>
-    cameraOn ? startCamera(camSelect.value || savedCameraId()) : setCameraOn(true),
-  );
-  navigator.mediaDevices.addEventListener('devicechange', refreshCameraList);
+  // ---------- 지표용 시계 ----------
+  // 동영상은 재생 속도·반복과 상관없이 영상 속 시간으로 스트로크 시간을 재야 한다.
+  // 반복이나 탐색으로 영상 시간이 되돌아가도 단조 증가하도록 이어 붙인다.
+  let mediaClock = 0;
+  let lastMediaTime = -1;
+  function resetMediaClock() {
+    lastMediaTime = -1;
+  }
+  function metricTime(now: number, meta: VideoFrameCallbackMetadata): number {
+    if (mode !== 'file') return now;
+    let d = meta.mediaTime - lastMediaTime;
+    if (lastMediaTime < 0 || d <= 0 || d > 1) d = 1 / 30;
+    lastMediaTime = meta.mediaTime;
+    mediaClock += d * 1000;
+    return mediaClock;
+  }
+  const clockNow = () => (mode === 'file' ? mediaClock : performance.now());
 
   // ---------- 프레임마다 자세 인식 ----------
-  function onVideoFrame() {
-    const now = performance.now();
+  function onVideoFrame(now: number, meta: VideoFrameCallbackMetadata) {
     camRate.tick(now);
     if (tracker.ready && !modelBusy && video.readyState >= 2) {
+      const t = metricTime(now, meta);
       const { landmarks, inferenceMs } = tracker.detect(video);
       poseRate.tick(now);
       infer.push(inferenceMs);
       latestLms = landmarks;
-      latestMetrics = handle.update(landmarks, camSize.width / camSize.height, now);
-      graph.push({ t: now, index: latestMetrics.index, knee: latestMetrics.kneeAngleDeg });
-      recorder.push(now, landmarks);
+      latestMetrics = handle.update(landmarks, camSize.width / camSize.height, t);
+      graph.push({ t: performance.now(), index: latestMetrics.index, knee: latestMetrics.kneeAngleDeg });
+      recorder.push(t, landmarks);
     }
     vfcHandle = video.requestVideoFrameCallback(onVideoFrame);
   }
 
-  /** 카메라를 (다시) 켤 때마다 프레임 루프를 하나만 걸어둔다. */
+  /** 입력을 (다시) 시작할 때마다 프레임 루프를 하나만 걸어둔다. */
   function armFrameLoop() {
     if (vfcHandle !== null) video.cancelVideoFrameCallback(vfcHandle);
     vfcHandle = video.requestVideoFrameCallback(onVideoFrame);
@@ -228,10 +389,11 @@ async function main() {
     if (cameraOn) overlay.draw(latestLms, status, side, det.minVisibility);
     else overlay.clear();
     graph.draw(now);
+    updateSeekUi();
 
     if (now - lastStats > 250) {
       lastStats = now;
-      if (cameraOn && video.srcObject) {
+      if (cameraOn && camera.kind !== 'none') {
         badge.className = `badge ${status}`;
         badge.textContent = STATUS_TEXT[status];
       }
@@ -286,7 +448,13 @@ async function main() {
   // ---------- 좌표 녹화 ----------
   recBtn.addEventListener('click', () => {
     if (!recorder.recording) {
-      recorder.start(camSize.width, camSize.height, `${tracker.model}/${tracker.delegate}`);
+      recorder.start(
+        camSize.width,
+        camSize.height,
+        `${tracker.model}/${tracker.delegate}`,
+        mode === 'file' && currentFile ? `file:${currentFile.name}` : 'camera',
+        clockNow(),
+      );
       recBtn.textContent = '녹화 중지 · 저장';
       recBtn.classList.add('recording');
     } else {
@@ -303,7 +471,7 @@ async function main() {
 
   // ---------- 시작 ----------
   renderLoop();
-  await Promise.all([initModel(), startCamera(savedCameraId())]);
+  await Promise.all([initModel(), startCamera(cameraId)]);
   await refreshCameraList();
 }
 
