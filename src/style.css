@@ -1,0 +1,184 @@
+:root {
+  --bg: #0b1220;
+  --panel: #111a2c;
+  --panel-2: #172238;
+  --line: #24324f;
+  --text: #e6ecf7;
+  --muted: #8a98b5;
+  --accent: #38e1ff;
+  --good: #3ddc84;
+  --warn: #ffc94d;
+  --bad: #ff5c5c;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Pretendard', 'Malgun Gothic', system-ui, sans-serif;
+  overflow: hidden;
+}
+
+#app {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  height: 100vh;
+}
+
+/* ---------- 메인 영역 ---------- */
+#stage {
+  position: relative;
+  display: grid;
+  grid-template-rows: 1fr 180px;
+  gap: 12px;
+  padding: 12px;
+  min-width: 0;
+  min-height: 0;
+}
+
+#scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+#camWrap {
+  position: relative;
+  justify-self: center;
+  align-self: center;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 4 / 3;
+  height: 100%;
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+  z-index: 1;
+}
+
+#camWrap video,
+#camWrap canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#camWrap video { object-fit: fill; }
+
+.badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0b1220;
+}
+.badge.ok { background: var(--good); }
+.badge.partial { background: var(--warn); }
+.badge.none { background: var(--bad); color: #fff; }
+
+.metric-box {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  z-index: 2;
+  background: rgba(11, 18, 32, 0.78);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  min-width: 150px;
+  display: grid;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.metric-box div { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.metric-box .k { color: var(--muted); font-size: 12px; }
+.metric-box .v { font-weight: 600; }
+.metric-box .big { font-size: 26px; color: var(--accent); }
+
+#graphWrap {
+  position: relative;
+  background: rgba(17, 26, 44, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  z-index: 1;
+  min-height: 0;
+}
+#graph { width: 100%; height: 100%; display: block; }
+.graph-legend {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-left: 8px; }
+.dot.cyan { background: #38e1ff; }
+.dot.orange { background: #ff9f43; }
+
+/* 3D 부하 모드: 실제 게임처럼 카메라를 모서리 작은 창으로 */
+#stage.game-layout #camWrap {
+  position: absolute;
+  right: 24px;
+  bottom: 216px;
+  height: 240px;
+  width: auto;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+#stage.game-layout #graphWrap { grid-row: 2; }
+
+/* ---------- 오른쪽 패널 ---------- */
+#panel {
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  padding: 16px;
+  overflow-y: auto;
+}
+
+h1 { font-size: 20px; margin: 0 0 12px; }
+h1 small { display: block; font-size: 12px; color: var(--muted); font-weight: 500; margin-top: 2px; }
+h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 8px; }
+
+section { padding: 12px 0; border-top: 1px solid var(--line); }
+
+label { display: grid; gap: 4px; font-size: 13px; margin-bottom: 8px; color: var(--muted); }
+label.check { display: flex; align-items: center; gap: 8px; color: var(--text); }
+
+select, button {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.recording { background: var(--bad); border-color: var(--bad); }
+
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.stat { background: var(--panel-2); border-radius: 6px; padding: 6px 8px; display: grid; }
+.stat .k { font-size: 11px; color: var(--muted); }
+.stat .v { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.v.good { color: var(--good); }
+.v.warn { color: var(--warn); }
+.v.bad { color: var(--bad); }
+
+.hint { font-size: 12px; color: var(--muted); margin: 6px 0 0; line-height: 1.5; }
+.hint.error { color: var(--bad); }

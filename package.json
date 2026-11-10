@@ -1,0 +1,29 @@
+{
+  "name": "wakeline",
+  "version": "0.1.0",
+  "private": true,
+  "description": "웹캠 자세 인식 로잉 게임",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n vite,electron -c cyan,magenta \"vite\" \"wait-on tcp:127.0.0.1:5173 && electron . --dev\"",
+    "web": "vite",
+    "build": "tsc --noEmit && vite build",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc --noEmit",
+    "setup:assets": "node scripts/setup-assets.mjs",
+    "postinstall": "node scripts/setup-assets.mjs"
+  },
+  "devDependencies": {
+    "@types/three": "^0.187.0",
+    "concurrently": "^10.0.7",
+    "electron": "^45.2.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.7",
+    "wait-on": "^9.5.1"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^1.2.2",
+    "three": "^0.187.0"
+  }
+}

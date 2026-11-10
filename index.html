@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' ws:; worker-src 'self' blob:" />
+    <title>Wakeline · 자세 인식 테스트</title>
+  </head>
+  <body>
+    <div id="app">
+      <main id="stage">
+        <canvas id="scene" hidden></canvas>
+        <div id="camWrap">
+          <video id="video" playsinline muted></video>
+          <canvas id="overlay"></canvas>
+          <div id="badge" class="badge none">카메라 준비 중</div>
+        </div>
+        <div id="metricBox" class="metric-box">
+          <div><span class="k">지표</span><span id="mIndex" class="v big">-</span></div>
+          <div><span class="k">무릎</span><span id="mKnee" class="v">-</span></div>
+          <div><span class="k">측면</span><span id="mSide" class="v">-</span></div>
+        </div>
+        <section id="graphWrap">
+          <div class="graph-legend">
+            <span class="dot cyan"></span>핸들 위치 지표 (0 캐치 · 1 피니시)
+            <span class="dot orange"></span>무릎 각도
+          </div>
+          <canvas id="graph"></canvas>
+        </section>
+      </main>
+
+      <aside id="panel">
+        <h1>Wakeline <small>1단계 · 자세 인식</small></h1>
+
+        <section>
+          <h2>성능</h2>
+          <div class="stats">
+            <div class="stat"><span class="k">카메라</span><span id="sCam" class="v">-</span></div>
+            <div class="stat"><span class="k">자세 인식</span><span id="sPose" class="v">-</span></div>
+            <div class="stat"><span class="k">추론 평균</span><span id="sInfer" class="v">-</span></div>
+            <div class="stat"><span class="k">추론 95%</span><span id="sInfer95" class="v">-</span></div>
+            <div class="stat"><span class="k">화면</span><span id="sRender" class="v">-</span></div>
+            <div class="stat"><span class="k">해상도</span><span id="sRes" class="v">-</span></div>
+          </div>
+          <p class="hint">목표: 자세 인식 25fps 이상, 화면 50fps 이상 (SRS NFR-01)</p>
+        </section>
+
+        <section>
+          <h2>카메라</h2>
+          <label>장치 <select id="camSelect"></select></label>
+          <label>해상도
+            <select id="resSelect">
+              <option value="640x480">640 × 480</option>
+              <option value="1280x720">1280 × 720</option>
+              <option value="1920x1080">1920 × 1080</option>
+            </select>
+          </label>
+        </section>
+
+        <section>
+          <h2>인식 모델</h2>
+          <label>모델
+            <select id="modelSelect">
+              <option value="lite">Lite (가장 빠름)</option>
+              <option value="full">Full (권장)</option>
+              <option value="heavy">Heavy (가장 정확)</option>
+            </select>
+          </label>
+          <label>실행 장치
+            <select id="delegateSelect">
+              <option value="GPU">GPU</option>
+              <option value="CPU">CPU</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" id="stressToggle" /> 3D 부하 함께 돌리기 (게임 화면 배치)</label>
+          <div id="modelStatus" class="hint"></div>
+        </section>
+
+        <section>
+          <h2>출력 화면</h2>
+          <div id="displayControls">
+            <label>모니터 <select id="displaySelect"></select></label>
+            <div class="row">
+              <button id="moveBtn">이 모니터로 보내기</button>
+              <button id="fsBtn">전체화면</button>
+            </div>
+          </div>
+          <p id="displayHint" class="hint">F11: 전체화면 전환 · 창 모드에서는 창을 끌어서 옮길 수 있음</p>
+        </section>
+
+        <section>
+          <h2>좌표 녹화</h2>
+          <div class="row">
+            <button id="recBtn">녹화 시작</button>
+            <span id="recStatus" class="hint"></span>
+          </div>
+          <p class="hint">관절 좌표만 JSON으로 저장합니다(영상은 저장하지 않음). 2단계 스트로크 감지기 튜닝에 씁니다.</p>
+        </section>
+      </aside>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
