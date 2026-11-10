@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Wakeline 미디어 도구</title>
+  </head>
+  <body style="margin: 0; background: #000">
+    <video id="v" muted playsinline preload="auto"></video>
+    <canvas id="c"></canvas>
+    <script type="module">
+      // README용 이미지·GIF를 녹화 영상에서 뽑는다 (scripts/make-readme-media.cjs가 호출).
+      import { GIFEncoder, quantize, applyPalette } from '../node_modules/gifenc/dist/gifenc.esm.js';
+
+      const v = document.getElementById('v');
+      const c = document.getElementById('c');
+      const g = c.getContext('2d', { willReadFrequently: true });
+
+      async function load(src) {
+        if (v.src !== src) {
+          v.src = src;
+          await new Promise((res, rej) => {
+            v.onloadeddata = res;
+            v.onerror = () => rej(new Error('영상을 열 수 없습니다'));
+          });
+        }
+        return { duration: v.duration, width: v.videoWidth, height: v.videoHeight };
+      }
+
+      async function seek(t) {
+        if (Math.abs(v.currentTime - t) < 1e-3) return;
+        await new Promise((res) => {
+          v.onseeked = res;
+          v.currentTime = t;
+        });
+      }
+
+      function draw(width, crop) {
+        const [sx, sy, sw, sh] = crop ?? [0, 0, v.videoWidth, v.videoHeight];
+        const w = Math.round(width);
+        const h = Math.round((w * sh) / sw);
+        c.width = w;
+        c.height = h;
+        g.drawImage(v, sx, sy, sw, sh, 0, 0, w, h);
+        return { w, h };
+      }
+
+      window.mediaInfo = (src) => load(src);
+
+      /** t초 장면을 PNG(dataURL)로 */
+      window.mediaFrame = async (src, t, width, crop, format) => {
+        await load(src);
+        await seek(t);
+        draw(width ?? v.videoWidth, crop);
+        return format === 'webp' ? c.toDataURL('image/webp', 0.86) : c.toDataURL('image/png');
+      };
+
+      /** start~end초를 fps로 뽑아 GIF(base64)로. 팔레트는 여러 장면을 섞어 한 번만 만든다. */
+      window.mediaGif = async (src, start, end, fps, width, crop) => {
+        await load(src);
+        const frames = [];
+        let size;
+        for (let t = start; t < end; t += 1 / fps) {
+          await seek(t);
+          size = draw(width, crop);
+          frames.push(g.getImageData(0, 0, size.w, size.h).data);
+        }
+        // 공용 팔레트: 프레임 몇 장의 픽셀을 이어 붙여 양자화
+        const pick = [0, Math.floor(frames.length / 3), Math.floor((2 * frames.length) / 3), frames.length - 1];
+        const sample = new Uint8ClampedArray(pick.length * frames[0].length);
+        pick.forEach((i, k) => sample.set(frames[i], k * frames[0].length));
+        const palette = quantize(sample, 256, { format: 'rgb565' });
+        const enc = GIFEncoder();
+        const delay = Math.round(1000 / fps);
+        for (const f of frames) enc.writeFrame(applyPalette(f, palette, 'rgb565'), size.w, size.h, { palette, delay });
+        enc.finish();
+        const bytes = enc.bytes();
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        return { b64: btoa(bin), frames: frames.length, width: size.w, height: size.h };
+      };
+      window.mediaReady = true;
+    </script>
+  </body>
+</html>
