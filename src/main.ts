@@ -6,6 +6,7 @@ import { loadConfig, loadMap, type DifficultyId } from './config';
 import type { OpponentKind } from './game/race';
 import { formatTime } from './game/race';
 import { RaceScreen } from './ui/raceScreen';
+import { RecordsPanel } from './ui/recordsPanel';
 import { Camera, listCameras, savedCameraId } from './pose/camera';
 import { HandleIndexTracker, type PoseMetrics } from './pose/handleIndex';
 import type { Landmark } from './pose/landmarks';
@@ -537,6 +538,7 @@ async function main() {
   window.addEventListener('keydown', (e) => {
     if (raceScreen.active) return;
     if (e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     if (e.code === 'KeyK') {
       e.preventDefault();
       setCheckMode(!checkMode);
@@ -561,9 +563,18 @@ async function main() {
   if (!raceDistance.value) raceDistance.value = String(config.race.defaultDistanceM);
   raceOpponent.value = pref.get('race.opponent', 'ai');
 
+  const records = new RecordsPanel();
+  raceDistance.addEventListener('change', () => records.refresh(Number(raceDistance.value), hanRiver.id));
+  await records.refresh(Number(raceDistance.value), hanRiver.id);
+
   const raceScreen = new RaceScreen(config, hanRiver, {
     onExit: () => {
       if (stressToggle.checked) setStress(true);
+      records.refresh();
+    },
+    onSaved: (rec) => {
+      window.wakeline?.sendMetrics(`record saved: ${rec.name} (${rec.strokeCount} strokes)`);
+      records.refresh();
     },
     onFinish: (s) => {
       window.wakeline?.sendMetrics(
@@ -579,7 +590,8 @@ async function main() {
     pref.set('race.difficulty', difficulty);
     pref.set('race.distance', String(distanceM));
     pref.set('race.opponent', opponent);
-    raceScreen.start({ mapId: hanRiver.id, distanceM, difficulty, opponent });
+    const ghosts = await records.selectedGhosts();
+    raceScreen.start({ mapId: hanRiver.id, distanceM, difficulty, opponent, ghosts });
   }
   $('raceStartBtn').addEventListener('click', () =>
     startRace(Number(raceDistance.value), raceDifficulty.value as DifficultyId, raceOpponent.value as OpponentKind),
@@ -701,9 +713,12 @@ async function main() {
       }
     }
 
+    if (cfg.autoSave) raceScreen.autoSave = true;
     if (cfg.startRace) {
       // 자세 인식이 자리 잡을 시간을 조금 준 뒤 출발한다.
       await new Promise((r) => setTimeout(r, 3000));
+      await records.refresh(cfg.startRace, hanRiver.id);
+      if (cfg.ghosts) records.selectRecent();
       await startRace(cfg.startRace, (cfg.raceDifficulty as DifficultyId) ?? 'normal', 'ai');
     }
   }

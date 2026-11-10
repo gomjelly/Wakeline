@@ -52,12 +52,15 @@ export interface GameConfig {
 const DEFAULTS: GameConfig = {
   race: { countdownSec: 5, resumeCountdownSec: 3, distancesM: [500, 1000, 2000, 5000], defaultDistanceM: 1000 },
   difficulty: {
-    easy: { splitSec: 160, spm: [20, 24], paceVariance: 0.06, finalSprint: 0.0 },
-    normal: { splitSec: 140, spm: [22, 26], paceVariance: 0.04, finalSprint: 0.03 },
-    hard: { splitSec: 120, spm: [26, 30], paceVariance: 0.03, finalSprint: 0.06 },
+    // 기준: 200회 ≈ 1km, 약 9분 → 보통 = 4:30/500m, 22SPM 안팎
+    easy: { splitSec: 300, spm: [18, 22], paceVariance: 0.06, finalSprint: 0.0 },
+    normal: { splitSec: 270, spm: [20, 24], paceVariance: 0.04, finalSprint: 0.03 },
+    hard: { splitSec: 240, spm: [22, 26], paceVariance: 0.03, finalSprint: 0.06 },
   },
-  physics: { propulsionGain: 9.0, dragCoefficient: 0.8, maxSpeedMps: 7.0 },
-  ai: { count: 3, spreadSec: 6 },
+  // 스트로크 1회 거리 ≈ propulsionGain / dragCoefficient × 스트로크 길이(0.75~1) ≈ 4.3~5.8m, 평균 약 5m
+  // 실제로 200회에 X km가 나오면 propulsionGain에 (1 / X)를 곱해 맞춘다.
+  physics: { propulsionGain: 4.6, dragCoefficient: 0.8, maxSpeedMps: 7.0 },
+  ai: { count: 3, spreadSec: 12 },
   detection: {
     minVisibility: 0.5,
     smoothingAlpha: 0.35,

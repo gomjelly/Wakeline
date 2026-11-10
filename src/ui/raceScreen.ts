@@ -1,24 +1,39 @@
-// 레이스 화면: 3D 장면 + HUD + 카운트다운 + 일시정지/종료 + 결과 (FR-GAM-02~07).
+// 레이스 화면: 3D 장면 + HUD + 카운트다운 + 일시정지/종료 + 결과·기록 저장 (FR-GAM-02~07, FR-REC-01~03).
 
 import type { GameConfig, MapDefinition } from '../config';
+import { defaultRecordName, saveRace, shortName, type SessionRecord } from '../data/records';
 import { Race, formatTime, type RaceSettings, type RaceSummary } from '../game/race';
-import { RaceScene } from '../game/raceScene';
+import { RaceScene, type BoatSpec } from '../game/raceScene';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const SWATCH = ['#ff4d4d', '#2f6bff', '#1fb57a', '#ff9f1c', '#9b5de5', '#00bbf9'];
+const GHOST_SWATCH = '#bfe6ff';
 
 export interface RaceScreenHooks {
   /** 화면을 닫고 메인으로 돌아갈 때 */
   onExit(): void;
   /** 레이스가 끝났을 때(완주/미완주) */
   onFinish?(summary: RaceSummary, race: Race): void;
+  /** 기록을 저장했을 때 */
+  onSaved?(record: SessionRecord): void;
+}
+
+interface BoatView {
+  id: string;
+  color: string;
+  distance: () => number;
 }
 
 export class RaceScreen {
   race: Race | null = null;
+  /** 테스트용: 결과가 나오면 바로 저장 */
+  autoSave = false;
   private scene: RaceScene | null = null;
   private settings: RaceSettings | null = null;
+  private startedAt = new Date();
+  private views: BoatView[] = [];
+  private ghostLabels: string[] = [];
   private lastFrame = 0;
   private raf = 0;
   private quitOpen = false;
@@ -27,6 +42,8 @@ export class RaceScreen {
   private passedBridges = new Set<string>();
   private lastCountdownText = '';
   private resultShown = false;
+  private saved: SessionRecord | null = null;
+  private saving = false;
 
   constructor(
     private cfg: GameConfig,
@@ -39,6 +56,7 @@ export class RaceScreen {
     $('quitCancelBtn').addEventListener('click', () => this.closeQuit());
     $('againBtn').addEventListener('click', () => this.settings && this.start(this.settings));
     $('homeBtn').addEventListener('click', () => this.exit());
+    $('saveBtn').addEventListener('click', () => this.save());
     window.addEventListener('keydown', (e) => this.onKey(e));
   }
 
@@ -49,18 +67,39 @@ export class RaceScreen {
   start(settings: RaceSettings): void {
     this.teardown();
     this.settings = settings;
-    this.race = new Race(this.cfg, settings);
-    const labels = ['나', ...this.race.ais.map((_, i) => this.race!.aiName(i))];
+    this.startedAt = new Date();
+    const race = (this.race = new Race(this.cfg, settings));
+    // 고스트 이름표는 늘 구분되게 한다:
+    //  - 줄인 이름이 서로 겹치면 줄이지 않는다
+    //  - AI 이름과 같으면 "(기록)"을 붙인다
+    const aiNames = new Set(race.ais.map((_, i) => race.aiName(i)));
+    const shorts = race.ghosts.map((g) => shortName(g.src.name));
+    this.ghostLabels = race.ghosts.map((g, i) => {
+      const label = shorts.filter((x) => x === shorts[i]).length > 1 ? g.src.name : shorts[i];
+      return aiNames.has(label) ? `${label} (기록)` : label;
+    });
+
+    const specs: BoatSpec[] = [
+      { label: '나' },
+      ...race.ais.map((_, i) => ({ label: race.aiName(i) })),
+      ...this.ghostLabels.map((label) => ({ label: `👻 ${label}`, ghost: true })),
+    ];
+    this.views = [
+      { id: 'player', color: SWATCH[0], distance: () => race.player.distance },
+      ...race.ais.map((a, i) => ({ id: `ai-${i}`, color: SWATCH[(i + 1) % SWATCH.length], distance: () => a.distance })),
+      ...race.ghosts.map((g, i) => ({ id: `ghost-${i}`, color: GHOST_SWATCH, distance: () => g.distance })),
+    ];
 
     $('raceView').hidden = false;
     document.body.classList.add('race-mode');
-    this.scene = new RaceScene($<HTMLCanvasElement>('raceCanvas'), this.map, settings.distanceM, 1 + this.race.ais.length, labels);
+    this.scene = new RaceScene($<HTMLCanvasElement>('raceCanvas'), this.map, settings.distanceM, specs);
     $('hudTotal').textContent = String(settings.distanceM);
-    $('hudBoats').textContent = String(1 + this.race.ais.length);
+    $('hudBoats').textContent = String(specs.length);
     this.buildProgressPips();
     ['pauseOverlay', 'quitOverlay', 'resultOverlay'].forEach((id) => ($(id).hidden = true));
     this.quitOpen = false;
     this.resultShown = false;
+    this.saved = null;
     this.passedBridges.clear();
     this.lastSeenPerson = performance.now();
     this.lastFrame = performance.now();
@@ -91,6 +130,7 @@ export class RaceScreen {
       [
         { distance: race.player.distance, index: race.playerIndex, driving: race.playerDriving },
         ...race.ais.map((a) => ({ distance: a.distance, index: a.index, driving: a.driving })),
+        ...race.ghosts.map((g) => ({ distance: g.distance, index: g.index, driving: g.driving })),
       ],
       dt,
     );
@@ -101,6 +141,7 @@ export class RaceScreen {
       const summary = race.summary();
       this.showResult(summary);
       this.hooks.onFinish?.(summary, race);
+      if (this.autoSave) this.save();
     }
     this.raf = requestAnimationFrame(this.loop);
   };
@@ -108,12 +149,12 @@ export class RaceScreen {
   private buildProgressPips(): void {
     const bar = $('hudProgress');
     bar.innerHTML = '';
-    const n = 1 + (this.race?.ais.length ?? 0);
-    for (let i = n - 1; i >= 0; i--) {
+    // 플레이어 점이 맨 위에 오도록 마지막에 붙인다.
+    for (const v of [...this.views].reverse()) {
       const pip = document.createElement('span');
-      pip.className = `pip ${i === 0 ? 'me' : ''}`;
-      pip.dataset.i = String(i);
-      pip.style.background = SWATCH[i % SWATCH.length];
+      pip.className = `pip ${v.id === 'player' ? 'me' : ''} ${v.id.startsWith('ghost') ? 'ghost' : ''}`;
+      pip.dataset.id = v.id;
+      pip.style.background = v.color;
       bar.appendChild(pip);
     }
   }
@@ -126,7 +167,7 @@ export class RaceScreen {
     $('hudBar').style.width = `${(d / total) * 100}%`;
     $('hudTime').textContent = formatTime(race.phase === 'finished' && race.finishTimeMs ? race.finishTimeMs : race.elapsedMs, true);
     const split = race.splitSec;
-    $('hudSplit').textContent = split && split < 600 ? formatTime(split * 1000) : '-';
+    $('hudSplit').textContent = split && split < 900 ? formatTime(split * 1000) : '-';
     $('hudSpm').textContent = race.spm ? race.spm.toFixed(0) : '0';
     $('hudStrokes').textContent = String(race.strokes.length);
     $('hudSpeed').textContent = `${race.player.speed.toFixed(1)}`;
@@ -141,17 +182,19 @@ export class RaceScreen {
     for (const b of st) {
       const li = document.createElement('li');
       if (b.id === 'player') li.className = 'me';
-      const idx = b.id === 'player' ? 0 : Number(b.id.split('-')[1]) + 1;
+      else if (b.id.startsWith('ghost')) li.className = 'ghost';
+      const color = this.views.find((v) => v.id === b.id)?.color ?? '#fff';
       const gap = b.id === 'player' ? '' : `${b.distance - me.distance >= 0 ? '+' : ''}${(b.distance - me.distance).toFixed(0)}m`;
-      li.innerHTML = `<span><span class="sw" style="background:${SWATCH[idx % SWATCH.length]}"></span>${b.name}</span><span class="gap">${b.finishTimeMs !== null ? formatTime(b.finishTimeMs, true) : gap}</span>`;
+      const name = b.id.startsWith('ghost') ? `👻 ${this.ghostLabels[Number(b.id.split('-')[1])]}` : b.name;
+      li.innerHTML = `<span class="nm"><span class="sw" style="background:${color}"></span><span></span></span><span class="gap">${b.finishTimeMs !== null ? formatTime(b.finishTimeMs, true) : gap}</span>`;
+      li.querySelector('.nm span:last-child')!.textContent = name;
       list.appendChild(li);
     }
 
     // 진행 막대
     for (const pip of $('hudProgress').querySelectorAll<HTMLElement>('.pip')) {
-      const i = Number(pip.dataset.i);
-      const dist = i === 0 ? race.player.distance : race.ais[i - 1].distance;
-      pip.style.left = `${Math.min(100, (dist / total) * 100)}%`;
+      const v = this.views.find((x) => x.id === pip.dataset.id);
+      if (v) pip.style.left = `${Math.min(100, (v.distance() / total) * 100)}%`;
     }
 
     // 카운트다운
@@ -237,14 +280,53 @@ export class RaceScreen {
     for (const b of race.standings()) {
       const li = document.createElement('li');
       if (b.id === 'player') li.className = 'me';
-      li.textContent = `${b.name} — ${b.finishTimeMs !== null ? formatTime(b.finishTimeMs, true) : `${b.distance.toFixed(0)}m`}`;
+      const name = b.id.startsWith('ghost') ? `👻 ${b.name}` : b.name;
+      li.textContent = `${name} — ${b.finishTimeMs !== null ? formatTime(b.finishTimeMs, true) : `${b.distance.toFixed(0)}m`}`;
       ol.appendChild(li);
     }
+
+    // 기록 저장 칸
+    const input = $<HTMLInputElement>('saveName');
+    input.value = defaultRecordName(this.startedAt, race.settings.distanceM, s);
+    input.disabled = false;
+    $<HTMLButtonElement>('saveBtn').disabled = s.strokeCount === 0;
+    $('saveStatus').textContent = s.strokeCount === 0 ? '스트로크가 없어 저장할 수 없습니다.' : '';
     $('resultOverlay').hidden = false;
+  }
+
+  private async save(): Promise<void> {
+    const race = this.race;
+    if (!race || this.saved || this.saving || !this.resultShown) return;
+    const s = race.summary();
+    if (s.strokeCount === 0) return;
+    this.saving = true;
+    const btn = $<HTMLButtonElement>('saveBtn');
+    btn.disabled = true;
+    try {
+      const rec = await saveRace($<HTMLInputElement>('saveName').value, this.startedAt, race.settings, s, race.strokes);
+      this.saved = rec;
+      $<HTMLInputElement>('saveName').value = rec.name;
+      $<HTMLInputElement>('saveName').disabled = true;
+      $('saveStatus').textContent = `✓ "${rec.name}" 으로 저장했습니다. 다음 레이스에서 고스트로 불러올 수 있어요.`;
+      this.hooks.onSaved?.(rec);
+    } catch (err) {
+      btn.disabled = false;
+      $('saveStatus').textContent = `저장 실패: ${(err as Error).message}`;
+    } finally {
+      this.saving = false;
+    }
   }
 
   private onKey(e: KeyboardEvent): void {
     if (!this.race || e.repeat) return;
+    // 이름 입력 중에는 Enter로 저장만 받는다.
+    if (e.target instanceof HTMLInputElement) {
+      if (e.code === 'Enter' && e.target.id === 'saveName') {
+        e.preventDefault();
+        this.save();
+      }
+      return;
+    }
     const phase = this.race.phase;
     const done = phase === 'finished' || phase === 'aborted';
     if (this.quitOpen) {
@@ -253,6 +335,7 @@ export class RaceScreen {
       else return;
     } else if (done) {
       if (e.code === 'KeyR') this.settings && this.start(this.settings);
+      else if (e.code === 'KeyS') this.save();
       else if (e.code === 'Escape') this.exit();
       else return;
     } else if (e.code === 'Space') {

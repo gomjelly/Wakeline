@@ -117,6 +117,22 @@ export class RowingBoat {
     this.pose(0.5, false, 0);
   }
 
+  /** 고스트처럼 반투명하게 만든다(FR-REC-03). */
+  makeGhost(): void {
+    this.group.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.castShadow = false;
+      const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
+      mat.transparent = true;
+      mat.opacity = 0.5;
+      mat.depthWrite = false;
+      mat.emissive = new THREE.Color('#9fd8ff');
+      mat.emissiveIntensity = 0.6;
+      mesh.material = mat;
+    });
+  }
+
   /**
    * @param index 0(캐치) ~ 1(피니시)
    * @param driving 드라이브 중이면 노가 물속, 아니면 물 위

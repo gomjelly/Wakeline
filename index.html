@@ -50,8 +50,23 @@
               <option value="none">없음 (혼자 타기)</option>
             </select>
           </label>
+          <div class="ghost-pick">
+            <div class="ghost-head">👻 고스트 (저장한 기록과 대결, 최대 3개)</div>
+            <div id="ghostList" class="ghost-list"></div>
+          </div>
           <button id="raceStartBtn" class="primary wide">🚣 레이스 시작</button>
           <p class="hint">시작하면 5초 카운트다운 후 출발합니다. 스페이스: 일시정지 · Esc: 종료</p>
+        </section>
+
+        <section>
+          <h2>저장한 기록</h2>
+          <ul id="recordList" class="record-list"></ul>
+          <div class="row">
+            <button id="exportBtn">📤 파일로 내보내기</button>
+            <button id="importBtn">📥 파일에서 가져오기</button>
+            <input type="file" id="importInput" accept=".json,application/json" hidden />
+          </div>
+          <p id="recordStatus" class="hint">⭐ = 거리별 최고 기록. 이름을 누르면 바꿀 수 있습니다.</p>
         </section>
 
         <section>
@@ -206,6 +221,11 @@
           <div id="resultRank" class="result-rank"></div>
           <div id="resultStats" class="result-stats"></div>
           <ol id="resultStandings" class="result-standings"></ol>
+          <div class="save-box">
+            <label>기록 이름 <input id="saveName" type="text" maxlength="60" /></label>
+            <button id="saveBtn" class="primary">💾 기록 저장 (S)</button>
+            <p id="saveStatus" class="hint"></p>
+          </div>
           <div class="row center">
             <button id="againBtn" class="primary">다시 하기 (R)</button>
             <button id="homeBtn">처음으로 (Esc)</button>

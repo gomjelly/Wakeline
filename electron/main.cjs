@@ -22,6 +22,11 @@ const logMetrics = process.argv.includes('--log-metrics');
 const startCheck = process.argv.includes('--start-check'); // 시작하자마자 카메라 점검 모드로 들어간다
 const startRace = Number(argValue('start-race')) || null; // --start-race=500 : 그 거리로 레이스 자동 시작
 const raceDifficulty = argValue('difficulty'); // --difficulty=easy|normal|hard
+const autoSave = process.argv.includes('--auto-save'); // 결과가 나오면 기록 자동 저장
+const autoGhosts = process.argv.includes('--ghosts'); // 같은 거리 최근 기록을 고스트로 자동 선택
+// --profile-dir=<폴더> : 기록·설정을 이 폴더에 따로 저장한다(테스트 기록이 실제 기록과 섞이지 않게)
+const profileDir = argValue('profile-dir');
+if (profileDir) app.setPath('userData', path.resolve(profileDir));
 const snapshotDir = argValue('snapshot-dir');
 const DEV_URL = 'http://127.0.0.1:5173';
 const DIST_DIR = path.join(__dirname, '..', 'dist');
@@ -199,7 +204,15 @@ ipcMain.handle('capture:select', (_e, id) => {
 });
 
 // ---------- 테스트 지원 ----------
-ipcMain.handle('test:config', () => ({ captureTitle: testCaptureTitle, logMetrics, startCheck, startRace, raceDifficulty }));
+ipcMain.handle('test:config', () => ({
+  captureTitle: testCaptureTitle,
+  logMetrics,
+  startCheck,
+  startRace,
+  raceDifficulty,
+  autoSave,
+  ghosts: autoGhosts,
+}));
 ipcMain.on('test:metrics', (_e, line) => {
   if (logMetrics) console.log(`[metrics] ${line}`);
 });

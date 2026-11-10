@@ -9,6 +9,11 @@ import { RowingBoat, type RowerColors } from './rower';
 
 export const LANE_WIDTH = 13.5;
 
+export interface BoatSpec {
+  label: string;
+  ghost?: boolean;
+}
+
 export interface BoatRenderState {
   distance: number;
   index: number;
@@ -24,6 +29,8 @@ const PALETTE: RowerColors[] = [
   { hull: '#f4f4f4', jersey: '#9b5de5', blade: '#9b5de5' },
   { hull: '#ffd23f', jersey: '#00bbf9', blade: '#00bbf9' },
 ];
+
+const GHOST_COLORS: RowerColors = { hull: '#dff3ff', jersey: '#bfe6ff', blade: '#bfe6ff', skin: '#dff3ff' };
 
 function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
   const c = document.createElement('canvas');
@@ -127,9 +134,9 @@ export class RaceScene {
     private canvas: HTMLCanvasElement,
     map: MapDefinition,
     distanceM: number,
-    boatCount: number,
-    labels: string[],
+    specs: BoatSpec[],
   ) {
+    const boatCount = specs.length;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -196,19 +203,25 @@ export class RaceScene {
 
     this.buildBanks(map.riverWidthM, length);
     this.buildBridges(map, distanceM);
-    this.buildLanes(boatCount, distanceM);
+    this.buildLanes(specs, distanceM);
     this.buildFinish(boatCount, distanceM);
 
     // ---------- 보트 ----------
     for (let i = 0; i < boatCount; i++) {
-      const boat = new RowingBoat(PALETTE[i % PALETTE.length]);
+      const spec = specs[i];
+      const boat = new RowingBoat(spec.ghost ? GHOST_COLORS : PALETTE[i % PALETTE.length]);
+      if (spec.ghost) boat.makeGhost();
       boat.group.position.x = this.laneX[i];
       this.scene.add(boat.group);
       this.boats.push(boat);
       // 플레이어 배에는 이름표를 달지 않는다(배를 가리지 않게).
-      const text = i === 0 ? '' : labels[i];
+      const text = i === 0 ? '' : spec.label;
       if (text) {
-        const s = textSprite(text, { size: 64, bg: 'rgba(11,18,32,0.75)', width: 384 });
+        const s = textSprite(text, {
+          size: text.length > 9 ? 44 : 64,
+          bg: spec.ghost ? 'rgba(60,120,170,0.6)' : 'rgba(11,18,32,0.75)',
+          width: text.length > 9 ? 640 : 384,
+        });
         s.scale.multiplyScalar(1.3);
         this.scene.add(s);
         this.labels.push(s);
@@ -352,7 +365,8 @@ export class RaceScene {
     }
   }
 
-  private buildLanes(boatCount: number, distanceM: number): void {
+  private buildLanes(specs: BoatSpec[], distanceM: number): void {
+    const boatCount = specs.length;
     const lanes = Math.max(boatCount, 3);
     const first = Math.floor((lanes - 1) / 2);
     // 플레이어(0번)를 가운데 레인에, 나머지를 양옆에 번갈아 놓는다.
@@ -362,7 +376,14 @@ export class RaceScene {
       if (order.length < boatCount && first - d >= 0) order.push(first - d);
     }
     const x0 = -((lanes - 1) / 2) * LANE_WIDTH;
-    this.laneX = order.map((lane) => x0 + lane * LANE_WIDTH);
+    // 레인 배정 우선순위: 플레이어 → 고스트(가장 중요한 비교 대상이라 바로 옆) → AI
+    const priority = [
+      0,
+      ...specs.map((sp, i) => (i > 0 && sp.ghost ? i : -1)).filter((i) => i >= 0),
+      ...specs.map((sp, i) => (i > 0 && !sp.ghost ? i : -1)).filter((i) => i >= 0),
+    ];
+    this.laneX = new Array(boatCount);
+    priority.forEach((boatIdx, k) => (this.laneX[boatIdx] = x0 + order[k] * LANE_WIDTH));
 
     // 레인 경계 부표
     const lines = lanes + 1;
@@ -393,13 +414,7 @@ export class RaceScene {
       this.scene.add(s);
     }
 
-    // 출발 폰툰
-    const pontoon = new THREE.Mesh(
-      new THREE.BoxGeometry(lanes * LANE_WIDTH + 10, 0.5, 3),
-      new THREE.MeshStandardMaterial({ color: '#d6d9de', roughness: 0.8 }),
-    );
-    pontoon.position.set(0, 0.15, 5.5);
-    this.scene.add(pontoon);
+    // 출발 폰툰은 카메라 앞을 가려서 두지 않는다.
   }
 
   private buildFinish(boatCount: number, distanceM: number): void {
@@ -471,15 +486,16 @@ export class RaceScene {
     });
 
     // 카메라: 플레이어 보트 뒤쪽 위에서 따라간다.
-    // 뒤에 바짝 쫓아오는 상대가 있으면 카메라를 뒤로 빼서 같이 보이게 한다(최대 60m 뒤까지).
+    // 바로 뒤에 바짝 쫓아오는 상대가 있으면 카메라를 조금 뒤로 빼서 같이 보이게 한다(25m 안쪽만).
+    // 더 멀리 떨어진 상대는 순위표와 진행 막대로 보여주고, 내 배가 작아지지 않게 한다.
     const p = this.boats[0]?.group.position ?? new THREE.Vector3();
     const me = boats[0]?.distance ?? 0;
     let behind = 0;
     for (const b of boats.slice(1)) {
       const gap = me - b.distance;
-      if (gap > 0 && gap < 60) behind = Math.max(behind, gap);
+      if (gap > 0 && gap < 25) behind = Math.max(behind, gap);
     }
-    const pull = Math.min(1, behind / 60);
+    const pull = Math.min(1, behind / 25) * 0.6;
     const want = new THREE.Vector3(p.x + 8 + pull * 6, 6 + pull * 9, p.z + 18 + behind * 0.9);
     const k = 1 - Math.exp(-dt * 2);
     this.camPos.lerp(want, k);

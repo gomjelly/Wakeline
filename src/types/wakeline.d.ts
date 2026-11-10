@@ -26,6 +26,10 @@ export interface TestConfig {
   /** 레이스 거리(m). 0/null이면 자동 시작하지 않음 */
   startRace: number | null;
   raceDifficulty: string | null;
+  /** 결과가 나오면 기록을 자동 저장 */
+  autoSave: boolean;
+  /** 같은 거리의 최근 기록을 고스트로 자동 선택 */
+  ghosts: boolean;
 }
 
 export interface WakelineBridge {

@@ -3,6 +3,7 @@
 
 import type { DifficultyId, GameConfig } from '../config';
 import { AiBoat } from './ai';
+import { GhostBoat, type GhostSource } from './ghost';
 import { BoatPhysics } from './physics';
 import { StrokeDetector, type StrokeEvent } from './strokeDetector';
 
@@ -14,6 +15,8 @@ export interface RaceSettings {
   distanceM: number;
   difficulty: DifficultyId;
   opponent: OpponentKind;
+  /** 함께 달릴 저장 기록(고스트) */
+  ghosts?: GhostSource[];
 }
 
 export interface RaceStroke extends StrokeEvent {
@@ -55,6 +58,7 @@ export class Race {
   readonly player: BoatPhysics;
   readonly detector: StrokeDetector;
   readonly ais: AiBoat[] = [];
+  readonly ghosts: GhostBoat[] = [];
   readonly strokes: RaceStroke[] = [];
   /** 플레이어 노 젓는 애니메이션용 지표(0~1) */
   playerIndex = 0.5;
@@ -80,6 +84,7 @@ export class Race {
         this.ais.push(new AiBoat(diff, diff.splitSec + offset, settings.distanceM, 1000 + i * 7919 + Date.now() % 1000));
       }
     }
+    for (const g of settings.ghosts ?? []) this.ghosts.push(new GhostBoat(g, settings.distanceM));
   }
 
   aiName(i: number): string {
@@ -120,6 +125,7 @@ export class Race {
         this.elapsedMs += dt * 1000;
         this.player.step(dt, now, true);
         for (const ai of this.ais) ai.step(dt, this.elapsedMs);
+        for (const g of this.ghosts) g.step(this.elapsedMs);
         this.history.push({ t: this.elapsedMs, d: this.player.distance });
         while (this.history.length && this.history[0].t < this.elapsedMs - 6000) this.history.shift();
         if (this.player.distance >= this.settings.distanceM) {
@@ -135,6 +141,7 @@ export class Race {
         this.elapsedMs += dt * 1000;
         this.player.step(dt, now, false);
         for (const ai of this.ais) ai.step(dt, this.elapsedMs);
+        for (const g of this.ghosts) g.step(this.elapsedMs);
         break;
       case 'paused':
         break;
@@ -180,6 +187,7 @@ export class Race {
     const boats: BoatStanding[] = [
       { id: 'player', name: '나', distance: this.player.distance, finishTimeMs: this.finishTimeMs },
       ...this.ais.map((a, i) => ({ id: `ai-${i}`, name: this.aiName(i), distance: a.distance, finishTimeMs: a.finishTimeMs })),
+      ...this.ghosts.map((g, i) => ({ id: `ghost-${i}`, name: g.src.name, distance: g.distance, finishTimeMs: g.finishTimeMs })),
     ];
     return boats.sort((a, b) => {
       if (a.finishTimeMs !== null && b.finishTimeMs !== null) return a.finishTimeMs - b.finishTimeMs;
