@@ -9,6 +9,8 @@ import type { Landmark } from './pose/landmarks';
 import { PoseTracker, type Delegate, type ModelKind } from './pose/poseTracker';
 import { PoseRecorder, downloadJson, timestampName } from './pose/recorder';
 import { StressScene } from './bench/stressScene';
+import { CameraCheck } from './check/cameraCheck';
+import { CheckView } from './ui/checkView';
 import { IndexGraph } from './ui/graph';
 import { SkeletonOverlay, STATUS_COLOR } from './ui/overlay';
 import { DurationStats, RateCounter, gradeFps } from './ui/stats';
@@ -57,6 +59,10 @@ async function main() {
   const overlay = new SkeletonOverlay($<HTMLCanvasElement>('overlay'));
   const graph = new IndexGraph($<HTMLCanvasElement>('graph'), 10000, det.catchThreshold, det.finishThreshold);
   const recorder = new PoseRecorder();
+  const check = new CameraCheck(det);
+  const checkView = new CheckView($<HTMLElement>('checkPanel'));
+  let checkMode = false;
+  let brightness: number | null = null;
   let stress: StressScene | null = null;
 
   const camRate = new RateCounter();
@@ -419,6 +425,7 @@ async function main() {
       latestMetrics = handle.update(landmarks, camSize.width / camSize.height, t);
       graph.push({ t: performance.now(), index: latestMetrics.index, knee: latestMetrics.kneeAngleDeg });
       metricSamples.push(latestMetrics);
+      if (checkMode) check.push({ t, landmarks, metrics: latestMetrics, aspect: camSize.width / camSize.height });
       recorder.push(t, landmarks);
     }
     vfcHandle = video.requestVideoFrameCallback(onVideoFrame);
@@ -437,7 +444,7 @@ async function main() {
   function renderLoop() {
     const now = performance.now();
     renderRate.tick(now);
-    stress?.render();
+    if (!checkMode) stress?.render();
 
     const status = latestMetrics?.status ?? 'none';
     const side = latestMetrics?.side ?? 'left';
@@ -448,6 +455,10 @@ async function main() {
 
     if (now - lastStats > 250) {
       lastStats = now;
+      if (checkMode) {
+        if (cameraOn && camera.kind !== 'none') brightness = measureBrightness() ?? brightness;
+        checkView.render(check.evaluate(camRate.rate(now), cameraOn ? brightness : null));
+      }
       if (cameraOn && camera.kind !== 'none') {
         badge.className = `badge ${status}`;
         badge.textContent = STATUS_TEXT[status];
@@ -483,6 +494,50 @@ async function main() {
     // 30fps 예산(33ms) 안에 다른 작업까지 들어가야 하므로 20ms 이하를 양호로 본다.
     el.className = `v ${ms <= 20 ? 'good' : ms <= 33 ? 'warn' : 'bad'}`;
   }
+
+  // ---------- 밝기 측정 (점검 모드) ----------
+  const lumaCanvas = document.createElement('canvas');
+  lumaCanvas.width = 32;
+  lumaCanvas.height = 18;
+  const lumaCtx = lumaCanvas.getContext('2d', { willReadFrequently: true })!;
+  function measureBrightness(): number | null {
+    if (video.readyState < 2) return null;
+    try {
+      lumaCtx.drawImage(video, 0, 0, lumaCanvas.width, lumaCanvas.height);
+      const d = lumaCtx.getImageData(0, 0, lumaCanvas.width, lumaCanvas.height).data;
+      let sum = 0;
+      for (let i = 0; i < d.length; i += 4) sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      return sum / (d.length / 4);
+    } catch {
+      return null;
+    }
+  }
+
+  // ---------- 카메라 점검 모드 ----------
+  async function setCheckMode(on: boolean) {
+    checkMode = on;
+    document.body.classList.toggle('check-mode', on);
+    $('checkPanel').hidden = !on;
+    check.reset();
+    brightness = null;
+    if (on && !cameraOn) await setCameraOn(true);
+  }
+  $('checkBtn').addEventListener('click', () => setCheckMode(true));
+  $('checkClose').addEventListener('click', () => setCheckMode(false));
+  $('checkRestart').addEventListener('click', () => {
+    check.reset();
+    brightness = null;
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.code === 'KeyK') {
+      e.preventDefault();
+      setCheckMode(!checkMode);
+    } else if (e.code === 'Escape' && checkMode) {
+      e.preventDefault();
+      setCheckMode(false);
+    }
+  });
 
   // ---------- 3D 부하 ----------
   function setStress(on: boolean) {
@@ -560,8 +615,18 @@ async function main() {
             `knee=${range(knee, 0)}`,
           ].join(' '),
         );
+        if (checkMode) {
+          const r = check.evaluate(camRate.rate(now), brightness);
+          api.sendMetrics(
+            `check ready=${r.ready} strokes=${r.strokeCount} light=${brightness?.toFixed(0) ?? '-'} ` +
+              r.items.map((i) => `${i.id}:${i.state}(${i.detail})`).join(' ') +
+              ` | ${r.guidance}`,
+          );
+        }
       }, 1000);
     }
+
+    if (cfg.startCheck) await setCheckMode(true);
 
     if (cfg.captureTitle) {
       const wanted = cfg.captureTitle.toLowerCase();

@@ -22,6 +22,7 @@ export interface CaptureSource {
 export interface TestConfig {
   captureTitle: string | null;
   logMetrics: boolean;
+  startCheck: boolean;
 }
 
 export interface WakelineBridge {

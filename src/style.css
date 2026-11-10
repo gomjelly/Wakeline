@@ -192,6 +192,88 @@ select:disabled { opacity: 0.45; }
 .file-controls .time { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; flex: 1; }
 .file-controls input[type='range'] { width: 100%; accent-color: var(--accent); }
 
+button.primary { background: var(--accent); border-color: var(--accent); color: #0b1220; font-weight: 700; }
+button.wide { width: 100%; padding: 10px; font-size: 15px; }
+
+/* ---------- 카메라 점검 모드 ---------- */
+body.check-mode #app { grid-template-columns: 1fr minmax(380px, 34vw); }
+body.check-mode #panel { display: none; }
+body.check-mode #scene { display: none; }
+body.check-mode #stage { grid-template-rows: 1fr 120px; }
+body.check-mode #stage.game-layout #camWrap {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  height: 100%;
+  box-shadow: none;
+}
+body.check-mode #metricBox { display: none; }
+
+#checkPanel {
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+#checkPanel h1 { font-size: 26px; margin: 0; }
+
+.check-guidance {
+  font-size: clamp(18px, 1.8vw, 26px);
+  font-weight: 700;
+  line-height: 1.4;
+  background: var(--panel-2);
+  border-left: 5px solid var(--warn);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.check-guidance.ready { border-left-color: var(--good); color: var(--good); }
+
+.stroke-dots { display: flex; gap: 10px; }
+.stroke-dot { width: 22px; height: 22px; border-radius: 50%; border: 3px solid var(--line); }
+.stroke-dot.on { background: var(--good); border-color: var(--good); }
+
+.check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.check-item {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel-2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: clamp(15px, 1.2vw, 19px);
+}
+.check-item .icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  background: var(--line);
+  color: var(--muted);
+}
+.check-item .detail { color: var(--muted); font-size: 0.85em; text-align: right; }
+.check-item.pass .icon { background: var(--good); color: #0b1220; }
+.check-item.warn .icon { background: var(--warn); color: #0b1220; }
+.check-item.fail .icon { background: var(--bad); color: #fff; }
+.check-item.fail .detail { color: var(--bad); }
+.check-item.warn .detail { color: var(--warn); }
+
+.check-banner {
+  text-align: center;
+  font-size: clamp(26px, 3vw, 40px);
+  font-weight: 800;
+  color: #0b1220;
+  background: var(--good);
+  border-radius: 12px;
+  padding: 14px;
+}
+.check-actions { margin-top: auto; justify-content: flex-end; }
+
 /* 화면/창 캡처 선택 */
 .modal {
   position: fixed;

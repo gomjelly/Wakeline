@@ -31,6 +31,8 @@
 
       <aside id="panel">
         <h1>Wakeline <small>1단계 · 자세 인식</small></h1>
+        <button id="checkBtn" class="primary wide">🎯 카메라 점검 시작</button>
+        <p class="hint">게임 전에 카메라와 자세가 잘 잡히는지 확인합니다 (단축키 K)</p>
 
         <section>
           <h2>성능</h2>
@@ -116,6 +118,18 @@
           </div>
           <p class="hint">관절 좌표만 JSON으로 저장합니다(영상은 저장하지 않음). 2단계 스트로크 감지기 튜닝에 씁니다.</p>
         </section>
+      </aside>
+
+      <aside id="checkPanel" hidden>
+        <h1>카메라 점검</h1>
+        <div id="checkGuidance" class="check-guidance">점검 중입니다…</div>
+        <div id="checkDots" class="stroke-dots"></div>
+        <ul id="checkList" class="check-list"></ul>
+        <div id="checkBanner" class="check-banner" hidden>준비 완료</div>
+        <div class="row check-actions">
+          <button id="checkRestart">다시 점검</button>
+          <button id="checkClose">점검 끝내기 (Esc)</button>
+        </div>
       </aside>
     </div>
     <div id="capturePicker" class="modal" hidden>
