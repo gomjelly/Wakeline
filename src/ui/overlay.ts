@@ -28,6 +28,11 @@ export class SkeletonOverlay {
     return { w, h };
   }
 
+  clear(): void {
+    const { w, h } = this.fit();
+    this.ctx.clearRect(0, 0, w, h);
+  }
+
   draw(lms: Landmark[] | null, status: TrackStatus, side: Side, minVisibility: number): void {
     const { w, h } = this.fit();
     const ctx = this.ctx;

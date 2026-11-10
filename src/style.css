@@ -86,6 +86,13 @@ html, body {
 .badge.ok { background: var(--good); }
 .badge.partial { background: var(--warn); }
 .badge.none { background: var(--bad); color: #fff; }
+.badge.off { background: #4a5570; color: #e6ecf7; }
+
+#camWrap.off { outline: 2px solid #4a5570; outline-offset: -2px; }
+
+.cam-toggle-row { margin-bottom: 10px; }
+.cam-toggle { min-width: 110px; font-weight: 600; }
+.cam-toggle.off { background: var(--accent); border-color: var(--accent); color: #0b1220; }
 
 .metric-box {
   position: absolute;

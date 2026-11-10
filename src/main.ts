@@ -68,6 +68,8 @@ async function main() {
   let latestMetrics: PoseMetrics | null = null;
   let modelBusy = false;
   let camSize = { width: 640, height: 480 };
+  let cameraOn = true;
+  let vfcHandle: number | null = null;
 
   // ---------- 모델 ----------
   modelSelect.value = pref.get('model', 'full');
@@ -109,6 +111,7 @@ async function main() {
     badge.textContent = '카메라 연결 중';
     try {
       const info = await camera.start(deviceId, w, h);
+      armFrameLoop();
       camSize = { width: info.width, height: info.height };
       camWrap.style.aspectRatio = `${info.width} / ${info.height}`;
       $('sRes').textContent = `${info.width}×${info.height}`;
@@ -140,8 +143,53 @@ async function main() {
     }
   }
 
-  camSelect.addEventListener('change', () => startCamera(camSelect.value));
-  resSelect.addEventListener('change', () => startCamera(camSelect.value || savedCameraId()));
+  // ---------- 카메라 켜기/끄기 ----------
+  // 끄면 스트림을 완전히 멈춰 카메라 표시등도 꺼지고, 자세 인식도 쉰다.
+  const camToggle = $<HTMLButtonElement>('camToggle');
+  let toggling = false;
+
+  async function setCameraOn(on: boolean) {
+    if (toggling) return;
+    toggling = true;
+    cameraOn = on;
+    camToggle.textContent = on ? '카메라 끄기' : '카메라 켜기';
+    camToggle.classList.toggle('on', on);
+    camToggle.classList.toggle('off', !on);
+    camToggle.setAttribute('aria-pressed', String(on));
+    camWrap.classList.toggle('off', !on);
+    try {
+      if (on) {
+        await startCamera(camSelect.value || savedCameraId());
+      } else {
+        if (vfcHandle !== null) video.cancelVideoFrameCallback(vfcHandle);
+        vfcHandle = null;
+        camera.stop();
+        latestLms = null;
+        latestMetrics = null;
+        handle.reset();
+        badge.className = 'badge off';
+        badge.textContent = '카메라 꺼짐';
+        $('sRes').textContent = '-';
+      }
+    } finally {
+      toggling = false;
+    }
+  }
+
+  camToggle.addEventListener('click', () => setCameraOn(!cameraOn));
+  window.addEventListener('keydown', (e) => {
+    // 한글 입력 상태에서도 동작하도록 e.code로 판별
+    if (e.code !== 'KeyC' || e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    e.preventDefault();
+    setCameraOn(!cameraOn);
+  });
+
+  // 꺼진 상태에서 장치/해상도를 바꾸면 바로 켠다.
+  camSelect.addEventListener('change', () => (cameraOn ? startCamera(camSelect.value) : setCameraOn(true)));
+  resSelect.addEventListener('change', () =>
+    cameraOn ? startCamera(camSelect.value || savedCameraId()) : setCameraOn(true),
+  );
   navigator.mediaDevices.addEventListener('devicechange', refreshCameraList);
 
   // ---------- 프레임마다 자세 인식 ----------
@@ -157,9 +205,14 @@ async function main() {
       graph.push({ t: now, index: latestMetrics.index, knee: latestMetrics.kneeAngleDeg });
       recorder.push(now, landmarks);
     }
-    video.requestVideoFrameCallback(onVideoFrame);
+    vfcHandle = video.requestVideoFrameCallback(onVideoFrame);
   }
-  video.requestVideoFrameCallback(onVideoFrame);
+
+  /** 카메라를 (다시) 켤 때마다 프레임 루프를 하나만 걸어둔다. */
+  function armFrameLoop() {
+    if (vfcHandle !== null) video.cancelVideoFrameCallback(vfcHandle);
+    vfcHandle = video.requestVideoFrameCallback(onVideoFrame);
+  }
 
   // ---------- 화면 갱신 ----------
   let lastStats = 0;
@@ -172,12 +225,13 @@ async function main() {
 
     const status = latestMetrics?.status ?? 'none';
     const side = latestMetrics?.side ?? 'left';
-    overlay.draw(latestLms, status, side, det.minVisibility);
+    if (cameraOn) overlay.draw(latestLms, status, side, det.minVisibility);
+    else overlay.clear();
     graph.draw(now);
 
     if (now - lastStats > 250) {
       lastStats = now;
-      if (video.srcObject) {
+      if (cameraOn && video.srcObject) {
         badge.className = `badge ${status}`;
         badge.textContent = STATUS_TEXT[status];
       }
